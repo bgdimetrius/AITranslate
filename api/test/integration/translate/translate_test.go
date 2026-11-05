@@ -206,6 +206,9 @@ func newProviderServer(t *testing.T) *httptest.Server {
 		case "/v2/translate":
 			w.Header().Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			_, _ = io.WriteString(w, `{"translations":[{"detected_source_language":"EN","text":"hola"}]}`)
+		case "/v2/usage":
+			w.Header().Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			_, _ = io.WriteString(w, `{"character_count":100,"character_limit":500000}`)
 		default:
 			http.NotFound(w, request)
 		}
