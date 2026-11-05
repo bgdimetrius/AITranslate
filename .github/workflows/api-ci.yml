@@ -45,6 +45,7 @@ jobs:
           version: v2.15.0
           install-mode: goinstall
           working-directory: api
+          args: --tests=false
 
       - name: Check module files
         run: |
