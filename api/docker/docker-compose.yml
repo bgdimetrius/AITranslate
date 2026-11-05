@@ -1,0 +1,218 @@
+version: "3.8"
+
+# CD resolves the ${VAR} placeholders before Docker Swarm receives this file.
+x-loki-logging: &loki-logging
+  driver: loki
+  options:
+    loki-url: "http://localhost:${LOKI_PORT}/loki/api/v1/push"
+    loki-external-labels: "stack=ai-translate-api,service={{.Name}}"
+    loki-retries: "5"
+    loki-max-backoff: "5s"
+    loki-timeout: "10s"
+
+services:
+  api:
+    image: ${DOCKER_REGISTRY}/ai-translate-api:${TAG}
+    environment:
+      APP_VERSION: "${APP_VERSION}"
+      APP_ENV: production
+      LOG_LEVEL: "${LOG_LEVEL}"
+      PORT: "${PORT}"
+      CORS_ORIGINS: "${CORS_ORIGINS}"
+      DATABASE_URL_FILE: /run/secrets/DATABASE_URL_FILE
+      DATABASE_APPLICATION_NAME: ai_translate_api
+      JWT_SECRET_FILE: /run/secrets/JWT_SECRET_FILE
+      AUTH_SECURE_COOKIES: "true"
+      OPENAI_API_KEY_FILE: /run/secrets/OPENAI_API_KEY_FILE
+      OPENAI_MODEL: "${OPENAI_MODEL}"
+      OPENAI_TRANSLATION_LANGUAGES: "${OPENAI_TRANSLATION_LANGUAGES}"
+      DEEPL_API_KEYS_FILE: /run/secrets/DEEPL_API_KEYS_FILE
+      TELEGRAM_BOT_API_KEY_FILE: /run/secrets/TELEGRAM_BOT_API_KEY_FILE
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+      TRANSLATE_PROMPT_FILE: /run/configs/TRANSLATE_PROMPT
+      INTERPRET_PROMPT_FILE: /run/configs/INTERPRET_PROMPT
+      ANALYZE_PROMPT_FILE: /run/configs/ANALYZE_PROMPT
+      MAX_TRANSLATION_CHARACTERS: "${MAX_TRANSLATION_CHARACTERS}"
+    secrets:
+      - DATABASE_URL_FILE
+      - JWT_SECRET_FILE
+      - OPENAI_API_KEY_FILE
+      - DEEPL_API_KEYS_FILE
+      - TELEGRAM_BOT_API_KEY_FILE
+    configs:
+      - source: translate_prompt
+        target: /run/configs/TRANSLATE_PROMPT
+      - source: interpret_prompt
+        target: /run/configs/INTERPRET_PROMPT
+      - source: analyze_prompt
+        target: /run/configs/ANALYZE_PROMPT
+    networks:
+      - internal
+    ports:
+      - target: ${PORT}
+        published: ${PORT}
+        protocol: tcp
+        mode: host
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${PORT}/health >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+        monitor: 45s
+    logging: *loki-logging
+
+  migrate:
+    image: ${DOCKER_REGISTRY}/ai-translate-api:${TAG}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        goose -dir /app/migrations postgres \
+          "`cat /run/secrets/DATABASE_URL_FILE`" \
+          up
+    secrets:
+      - DATABASE_URL_FILE
+    networks:
+      - internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+    logging: *loki-logging
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_DB: "${POSTGRES_DB}"
+      POSTGRES_PASSWORD_FILE: /run/secrets/POSTGRES_PASSWORD
+    secrets:
+      - POSTGRES_PASSWORD
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+    logging: *loki-logging
+
+  loki:
+    image: grafana/loki:3.0.0
+    command: -config.file=/etc/loki/config.yml
+    configs:
+      - source: loki_config
+        target: /etc/loki/config.yml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - internal
+    ports:
+      - target: 3100
+        published: ${LOKI_PORT}
+        protocol: tcp
+        mode: host
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/GRAFANA_PASSWORD
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    secrets:
+      - GRAFANA_PASSWORD
+    configs:
+      - source: grafana_datasource
+        target: /etc/grafana/provisioning/datasources/loki.yml
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - internal
+    ports:
+      - target: 3000
+        published: ${GRAFANA_PORT}
+        protocol: tcp
+        mode: host
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+networks:
+  internal:
+    driver: overlay
+
+volumes:
+  postgres_data:
+  loki_data:
+  grafana_data:
+
+secrets:
+  DATABASE_URL_FILE:
+    external: true
+    name: DATABASE_URL_FILE_${TAG}
+  POSTGRES_PASSWORD:
+    external: true
+    name: POSTGRES_PASSWORD_${TAG}
+  JWT_SECRET_FILE:
+    external: true
+    name: JWT_SECRET_FILE_${TAG}
+  OPENAI_API_KEY_FILE:
+    external: true
+    name: OPENAI_API_KEY_FILE_${TAG}
+  DEEPL_API_KEYS_FILE:
+    external: true
+    name: DEEPL_API_KEYS_FILE_${TAG}
+  TELEGRAM_BOT_API_KEY_FILE:
+    external: true
+    name: TELEGRAM_BOT_API_KEY_FILE_${TAG}
+  GRAFANA_PASSWORD:
+    external: true
+    name: GRAFANA_PASSWORD_${TAG}
+
+configs:
+  loki_config:
+    external: true
+    name: loki_config_${TAG}
+  grafana_datasource:
+    external: true
+    name: grafana_datasource_${TAG}
+  translate_prompt:
+    external: true
+    name: TRANSLATE_PROMPT_${TAG}
+  interpret_prompt:
+    external: true
+    name: INTERPRET_PROMPT_${TAG}
+  analyze_prompt:
+    external: true
+    name: ANALYZE_PROMPT_${TAG}

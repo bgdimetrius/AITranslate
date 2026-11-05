@@ -1,0 +1,963 @@
+basePath: /api/v1
+definitions:
+  internal_analytics.email:
+    properties:
+      email:
+        example: reader@example.com
+        format: email
+        type: string
+    type: object
+  internal_analytics.rating:
+    properties:
+      rating:
+        enum:
+        - -1
+        - 1
+        example: 1
+        type: integer
+      text:
+        example: The translation was accurate.
+        type: string
+    type: object
+  internal_interpretate.interpretation:
+    properties:
+      meanings:
+        items:
+          $ref: '#/definitions/internal_interpretate.meaningCard'
+        type: array
+      part_of_speech:
+        type: string
+    type: object
+  internal_interpretate.meaningCard:
+    properties:
+      context:
+        example: Used when greeting someone
+        type: string
+      example:
+        example: Hello, how are you?
+        type: string
+      translation:
+        example: hola
+        type: string
+    type: object
+  internal_interpretate.textReq:
+    properties:
+      text:
+        example: break the ice
+        type: string
+    type: object
+  internal_languages.Capabilities:
+    properties:
+      auto_detect:
+        type: boolean
+      source:
+        items:
+          type: string
+        type: array
+      target:
+        items:
+          type: string
+        type: array
+    type: object
+  pkg.ErrorResponse:
+    properties:
+      message:
+        example: invalid input
+        type: string
+    type: object
+info:
+  contact: {}
+  description: |-
+    Translation, interpretation, authentication, and feedback API.
+    Authenticated operations use the HttpOnly access_token cookie. Swagger 2 models it as the Cookie request header.
+    Use access_token=<JWT> as the CookieAuth value; /api/v1/auth/handshake additionally requires refresh_token=<token> in the same header.
+    A successful handshake immediately supersedes the prior access token and rejects replay of the prior refresh token.
+    Every operation passes through request-ID assignment, request logging, panic recovery, deadline propagation, security headers, CORS, per-IP rate limiting, and the global body-size limit before route middleware.
+  title: AI Translate API
+  version: "1.0"
+paths:
+  /analytics/feedback:
+    put:
+      consumes:
+      - application/json
+      description: Stores a +1 or -1 rating for the authenticated installation. The
+        optional text is limited to 128 bytes.
+      operationId: saveApplicationFeedback
+      parameters:
+      - description: Caller-supplied correlation ID; generated when omitted
+        in: header
+        name: X-Request-ID
+        type: string
+      - description: Rating and optional feedback text
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_analytics.rating'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Feedback recorded
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+        "400":
+          description: Malformed JSON, unsupported rating, or feedback text over 128
+            bytes
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "401":
+          description: Missing, expired, or invalid access_token cookie
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "413":
+          description: Request body exceeds the configured global limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "429":
+          description: Per-IP rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until another request may be attempted
+              type: integer
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "500":
+          description: Session validation or feedback persistence failed
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Record application feedback
+      tags:
+      - analytics
+  /analytics/feedback/order:
+    put:
+      consumes:
+      - application/json
+      description: Stores a plain email address for the authenticated installation.
+        Surrounding whitespace is trimmed; display-name address forms are rejected.
+      operationId: registerFeedbackLead
+      parameters:
+      - description: Caller-supplied correlation ID; generated when omitted
+        in: header
+        name: X-Request-ID
+        type: string
+      - description: Email address to register
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_analytics.email'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Email address recorded
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+        "400":
+          description: Malformed JSON or invalid email address
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "401":
+          description: Missing, expired, or invalid access_token cookie
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "413":
+          description: Request body exceeds the configured global limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "429":
+          description: Per-IP rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until another request may be attempted
+              type: integer
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "500":
+          description: Session validation or lead persistence failed
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Register a feedback lead
+      tags:
+      - analytics
+  /auth/handshake:
+    post:
+      description: |-
+        Requires access_token and refresh_token cookies. The access token may be expired, but its signature and subject must be valid; the refresh token must match the stored hash.
+        On success both cookies are rotated and returned as HttpOnly Set-Cookie headers. The prior refresh token cannot be replayed, and the prior access token immediately stops authorizing protected endpoints.
+      operationId: refreshSession
+      parameters:
+      - description: Caller-supplied correlation ID; generated when omitted
+        in: header
+        name: X-Request-ID
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Session refreshed; no response body
+          headers:
+            Set-Cookie:
+              description: Rotated access_token and refresh_token cookies
+              type: string
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+        "400":
+          description: One or both session cookies are missing
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "401":
+          description: Refresh token does not match the stored session
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "403":
+          description: Access token signature or subject is invalid
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "413":
+          description: Request body exceeds the configured global limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "429":
+          description: Per-IP rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until another request may be attempted
+              type: integer
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "500":
+          description: Token generation or atomic session rotation failed
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Refresh an installation session
+      tags:
+      - auth
+  /interpretate:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        Authenticates the installation and validates target_lang before invoking the model. Text may contain 1-21 whitespace-delimited words.
+        A non-empty text query parameter takes precedence; otherwise text is decoded from the optional JSON body.
+      operationId: interpretText
+      parameters:
+      - description: Caller-supplied correlation ID; generated when omitted
+        in: header
+        name: X-Request-ID
+        type: string
+      - description: Supported target language code
+        in: query
+        name: target_lang
+        required: true
+        type: string
+      - description: Text to interpret; required when the JSON body is omitted
+        in: query
+        name: text
+        type: string
+      - description: Alternative text source; ignored when the text query parameter
+          is non-empty
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_interpretate.textReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Structured interpretation
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/internal_interpretate.interpretation'
+        "400":
+          description: Unsupported target language, malformed body, or text outside
+            the 1-21 word limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "401":
+          description: Missing, expired, or invalid access_token cookie
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "413":
+          description: Request body exceeds the configured global limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "429":
+          description: Per-IP rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until another request may be attempted
+              type: integer
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "500":
+          description: Session validation failed, or the provider failed or returned
+            an invalid interpretation
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "504":
+          description: Interpretation exceeded the request deadline
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Interpret short text
+      tags:
+      - interpretation
+  /interpretate/analyze:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Authenticates the installation, accepts 1-21 whitespace-delimited words, and asks the model whether the text is suitable for interpretation.
+        A non-empty text query parameter takes precedence; otherwise text is decoded from the optional JSON body.
+      operationId: analyzeText
+      parameters:
+      - description: Caller-supplied correlation ID; generated when omitted
+        in: header
+        name: X-Request-ID
+        type: string
+      - description: Text to analyze; required when the JSON body is omitted
+        in: query
+        name: text
+        type: string
+      - description: Alternative text source; ignored when the text query parameter
+          is non-empty
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_interpretate.textReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Text is suitable; no response body
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+        "400":
+          description: Malformed body or text outside the 1-21 word limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "401":
+          description: Missing, expired, or invalid access_token cookie
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "406":
+          description: Text is not suitable; no response body
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+        "413":
+          description: Request body exceeds the configured global limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "429":
+          description: Per-IP rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until another request may be attempted
+              type: integer
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "500":
+          description: Session validation failed, or the provider failed or returned
+            a value other than true or false
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "504":
+          description: Analysis exceeded the request deadline
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Analyze text suitability
+      tags:
+      - interpretation
+  /languages:
+    get:
+      description: Returns source and target language codes separately for every configured
+        translation provider.
+      operationId: listTranslationLanguages
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/internal_languages.Capabilities'
+            type: object
+      summary: List translation languages
+      tags:
+      - translation
+  /translate:
+    get:
+      description: |-
+        Authenticates the installation, validates both language codes, selects the requested provider, and enforces the configured text-size limit before calling the provider.
+        chatgpt streams raw model output and may have already written partial output if the provider fails. deepl returns a JSON object containing source_lang and text.
+      operationId: translateText
+      parameters:
+      - description: Caller-supplied correlation ID; generated when omitted
+        in: header
+        name: X-Request-ID
+        type: string
+      - description: Supported source language code; omitted for automatic detection
+        in: query
+        name: source_lang
+        type: string
+      - description: Supported target language code
+        in: query
+        name: target_lang
+        required: true
+        type: string
+      - description: Translation provider
+        enum:
+        - chatgpt
+        - deepl
+        in: query
+        name: translator
+        required: true
+        type: string
+      - description: Non-empty text within the server-configured byte limit
+        in: query
+        name: text
+        required: true
+        type: string
+      produces:
+      - text/plain
+      - application/json
+      responses:
+        "200":
+          description: 'chatgpt: streamed text; deepl: JSON-encoded object with source_lang
+            and text'
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            type: string
+        "400":
+          description: Unsupported language or provider, missing text, or text over
+            the configured limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "401":
+          description: Missing, expired, or invalid access_token cookie
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "413":
+          description: Request body exceeds the configured global limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "429":
+          description: Per-IP rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until another request may be attempted
+              type: integer
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "500":
+          description: Session validation, translation provider, or response encoding
+            failed
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "504":
+          description: Translation exceeded the request deadline
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Translate text
+      tags:
+      - translation
+  /users/new:
+    post:
+      description: Creates an installation record and starts its first session. Both
+        tokens are returned as HttpOnly Set-Cookie headers.
+      operationId: createInstallation
+      parameters:
+      - description: Caller-supplied correlation ID; generated when omitted
+        in: header
+        name: X-Request-ID
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Installation created; no response body
+          headers:
+            Set-Cookie:
+              description: New access_token and refresh_token cookies
+              type: string
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+        "413":
+          description: Request body exceeds the configured global limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "429":
+          description: Per-IP rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until another request may be attempted
+              type: integer
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "500":
+          description: Installation creation or initial session creation failed
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+      summary: Create an anonymous installation
+      tags:
+      - users
+schemes:
+- http
+- https
+securityDefinitions:
+  CookieAuth:
+    in: header
+    name: Cookie
+    type: apiKey
+swagger: "2.0"
+tags:
+- description: Anonymous installation provisioning.
+  name: users
+- description: Session refresh and token rotation.
+  name: auth
+- description: Text translation through configured providers.
+  name: translation
+- description: Short-text analysis and contextual meanings.
+  name: interpretation
+- description: Authenticated product feedback and lead capture.
+  name: analytics

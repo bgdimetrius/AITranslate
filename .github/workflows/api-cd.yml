@@ -1,0 +1,306 @@
+name: API CD
+
+on:
+  workflow_run:
+    workflows: ["API CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-production
+  cancel-in-progress: false
+
+jobs:
+  resolve-release:
+    name: Resolve GitHub Release Tag
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Resolve tag pointing at tested commit
+        id: release
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          mapfile -t RELEASE_TAGS < <(
+            git tag --points-at "$DEPLOY_SHA" \
+              | grep -E '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' \
+              | sort -V \
+              || true
+          )
+
+          if [ "${#RELEASE_TAGS[@]}" -eq 0 ]; then
+            echo "No Docker-safe GitHub tag points at $DEPLOY_SHA; nothing to deploy."
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${#RELEASE_TAGS[@]}" -ne 1 ]; then
+            echo "ERROR: expected exactly one Docker-safe GitHub tag on $DEPLOY_SHA"
+            printf 'Found: %s\n' "${RELEASE_TAGS[*]}"
+            exit 1
+          fi
+
+          echo "tag=${RELEASE_TAGS[0]}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy API
+    needs: resolve-release
+    if: ${{ needs.resolve-release.outputs.tag != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      TAG: ${{ needs.resolve-release.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: api
+          file: api/docker/prod.Dockerfile
+          push: true
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/ai-translate-api:${{ needs.resolve-release.outputs.tag }}
+          cache-from: type=gha,scope=ai-translate-api-prod
+          cache-to: type=gha,mode=max,scope=ai-translate-api-prod
+
+      - name: Copy versioned API project to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "api"
+          target: "~/AITranslate/api/${{ needs.resolve-release.outputs.tag }}/"
+          strip_components: 1
+
+      - name: Deploy API stack to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: >-
+            TAG,
+            DOCKERHUB_USERNAME,
+            DOCKERHUB_TOKEN,
+            APP_VERSION,
+            LOG_LEVEL,
+            PORT,
+            CORS_ORIGINS,
+            POSTGRES_USER,
+            POSTGRES_DB,
+            DATABASE_URL,
+            POSTGRES_PASSWORD,
+            JWT_SECRET,
+            OPENAI_API_KEY,
+            OPENAI_MODEL,
+            OPENAI_TRANSLATION_LANGUAGES,
+            DEEPL_API_KEYS,
+            TELEGRAM_BOT_API_KEY,
+            TELEGRAM_CHAT_ID,
+            TRANSLATE_PROMPT,
+            INTERPRET_PROMPT,
+            ANALYZE_PROMPT,
+            MAX_TRANSLATION_CHARACTERS,
+            LOKI_PORT,
+            GRAFANA_PORT,
+            GRAFANA_PASSWORD
+          script: |
+            set -euo pipefail
+
+            require_value() {
+              if [ -z "$2" ]; then
+                echo "ERROR: $1 is empty"
+                exit 1
+              fi
+            }
+
+            sync_secret() {
+              local name="${1}_${TAG}"
+              local value="$2"
+              require_value "$1" "$value"
+              if ! docker secret inspect "$name" >/dev/null 2>&1; then
+                printf '%s' "$value" | docker secret create "$name" -
+              fi
+            }
+
+            sync_config() {
+              local name="${1}_${TAG}"
+              local file="$2"
+              if ! docker config inspect "$name" >/dev/null 2>&1; then
+                docker config create "$name" "$file"
+              fi
+            }
+
+            sync_config_value() {
+              local name="${1}_${TAG}"
+              local value="$2"
+              require_value "$1" "$value"
+              if ! docker config inspect "$name" >/dev/null 2>&1; then
+                printf '%s' "$value" | docker config create "$name" -
+              fi
+            }
+
+            require_value APP_VERSION "$APP_VERSION"
+            require_value PORT "$PORT"
+            require_value CORS_ORIGINS "$CORS_ORIGINS"
+            require_value OPENAI_TRANSLATION_LANGUAGES "$OPENAI_TRANSLATION_LANGUAGES"
+            require_value TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
+            require_value LOKI_PORT "$LOKI_PORT"
+            require_value GRAFANA_PORT "$GRAFANA_PORT"
+
+            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+            sync_secret DATABASE_URL_FILE "$DATABASE_URL"
+            sync_secret POSTGRES_PASSWORD "$POSTGRES_PASSWORD"
+            sync_secret JWT_SECRET_FILE "$JWT_SECRET"
+            sync_secret OPENAI_API_KEY_FILE "$OPENAI_API_KEY"
+            sync_secret DEEPL_API_KEYS_FILE "$DEEPL_API_KEYS"
+            sync_secret TELEGRAM_BOT_API_KEY_FILE "$TELEGRAM_BOT_API_KEY"
+            sync_secret GRAFANA_PASSWORD "$GRAFANA_PASSWORD"
+
+            DEPLOY_DIR="$HOME/AITranslate/api/$TAG"
+            require_value DEPLOY_DIR "$DEPLOY_DIR"
+
+            sync_config loki_config "$DEPLOY_DIR/cfg/loki-config.yml"
+            sync_config grafana_datasource "$DEPLOY_DIR/cfg/grafana-datasource.yml"
+            sync_config_value TRANSLATE_PROMPT "$TRANSLATE_PROMPT"
+            sync_config_value INTERPRET_PROMPT "$INTERPRET_PROMPT"
+            sync_config_value ANALYZE_PROMPT "$ANALYZE_PROMPT"
+
+            cd "$DEPLOY_DIR"
+
+            export DOCKER_REGISTRY="$DOCKERHUB_USERNAME"
+            export TAG APP_VERSION LOG_LEVEL PORT CORS_ORIGINS
+            export POSTGRES_USER POSTGRES_DB
+            export OPENAI_MODEL OPENAI_TRANSLATION_LANGUAGES
+            export TELEGRAM_CHAT_ID
+            export MAX_TRANSLATION_CHARACTERS LOKI_PORT GRAFANA_PORT
+
+            envsubst \
+              '${DOCKER_REGISTRY} ${TAG} ${APP_VERSION} ${LOG_LEVEL} ${PORT} ${CORS_ORIGINS} ${POSTGRES_USER} ${POSTGRES_DB} ${OPENAI_MODEL} ${OPENAI_TRANSLATION_LANGUAGES} ${TELEGRAM_CHAT_ID} ${MAX_TRANSLATION_CHARACTERS} ${LOKI_PORT} ${GRAFANA_PORT}' \
+              < docker/docker-compose.yml \
+              > docker/docker-compose.resolved.yml
+
+            docker stack deploy \
+              --with-registry-auth \
+              --prune \
+              -c docker/docker-compose.resolved.yml \
+              ai-translate-api_stack
+
+            echo "Waiting for migration and services to stabilize..."
+            MAX_WAIT=30
+            WAIT_COUNT=0
+
+            until [ "$WAIT_COUNT" -ge "$MAX_WAIT" ]; do
+              ALL_HEALTHY=true
+
+              for SERVICE in \
+                ai-translate-api_stack_api \
+                ai-translate-api_stack_db \
+                ai-translate-api_stack_loki \
+                ai-translate-api_stack_grafana; do
+                REPLICAS=$(docker service ls --filter name="$SERVICE" --format '{{.Replicas}}')
+                RUNNING=$(echo "$REPLICAS" | cut -d/ -f1)
+                DESIRED=$(echo "$REPLICAS" | cut -d/ -f2)
+                FAILED=$(docker service ps "$SERVICE" \
+                  --filter desired-state=running \
+                  --no-trunc \
+                  --format '{{.CurrentState}}' \
+                  | grep -c Failed || true)
+
+                if [ -z "$REPLICAS" ] || [ "$RUNNING" != "$DESIRED" ] || [ "$FAILED" -gt 0 ]; then
+                  echo "[$WAIT_COUNT/$MAX_WAIT] $SERVICE not ready: $REPLICAS failed=$FAILED"
+                  ALL_HEALTHY=false
+                fi
+              done
+
+              MIGRATE_STATE=$(docker service ps ai-translate-api_stack_migrate \
+                --no-trunc \
+                --format '{{.CurrentState}}' \
+                | head -1)
+              if [[ "$MIGRATE_STATE" != Complete* ]]; then
+                echo "[$WAIT_COUNT/$MAX_WAIT] migration not complete: $MIGRATE_STATE"
+                ALL_HEALTHY=false
+              fi
+
+              if [ "$ALL_HEALTHY" = true ] && \
+                curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${PORT}/health" >/dev/null; then
+                echo "API deployment is healthy."
+                break
+              fi
+
+              sleep 10
+              WAIT_COUNT=$((WAIT_COUNT + 1))
+            done
+
+            if [ "$WAIT_COUNT" -ge "$MAX_WAIT" ]; then
+              echo "ERROR: API deployment timed out"
+              docker service ls
+              docker service ps ai-translate-api_stack_api --no-trunc || true
+              docker service ps ai-translate-api_stack_migrate --no-trunc || true
+              exit 1
+            fi
+
+            docker secret ls --format '{{.Name}}' \
+              | grep -E '^(DATABASE_URL_FILE|POSTGRES_PASSWORD|JWT_SECRET_FILE|OPENAI_API_KEY_FILE|DEEPL_API_KEYS_FILE|TELEGRAM_BOT_API_KEY_FILE|GRAFANA_PASSWORD)_[a-f0-9]{8}$' \
+              | grep -v "_${TAG}$" \
+              | xargs -r docker secret rm \
+              || true
+
+            docker config ls --format '{{.Name}}' \
+              | grep -E '^(loki_config|grafana_datasource|TRANSLATE_PROMPT|INTERPRET_PROMPT|ANALYZE_PROMPT)_[a-f0-9]{8}$' \
+              | grep -v "_${TAG}$" \
+              | xargs -r docker config rm \
+              || true
+
+            docker image prune -f
+        env:
+          TAG: ${{ needs.resolve-release.outputs.tag }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          APP_VERSION: ${{ vars.APP_VERSION || 'v1' }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'info' }}
+          PORT: ${{ vars.PORT || '4161' }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          POSTGRES_USER: ${{ vars.POSTGRES_USER || 'ai_translate' }}
+          POSTGRES_DB: ${{ vars.POSTGRES_DB || 'ai_translate' }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-nano' }}
+          OPENAI_TRANSLATION_LANGUAGES: ${{ vars.OPENAI_TRANSLATION_LANGUAGES }}
+          DEEPL_API_KEYS: ${{ secrets.DEEPL_API_KEYS }}
+          TELEGRAM_BOT_API_KEY: ${{ secrets.TELEGRAM_BOT_API_KEY }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
+          TRANSLATE_PROMPT: ${{ vars.TRANSLATE_PROMPT }}
+          INTERPRET_PROMPT: ${{ vars.INTERPRET_PROMPT }}
+          ANALYZE_PROMPT: ${{ vars.ANALYZE_PROMPT }}
+          MAX_TRANSLATION_CHARACTERS: ${{ vars.MAX_TRANSLATION_CHARACTERS || '10000' }}
+          LOKI_PORT: ${{ vars.LOKI_PORT || '3100' }}
+          GRAFANA_PORT: ${{ vars.GRAFANA_PORT || '3000' }}
+          GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}

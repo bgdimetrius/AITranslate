@@ -1,0 +1,6 @@
+.env
+.env.*
+coverage.out
+ai_translate
+*.test
+docker/docker-compose.resolved.yml

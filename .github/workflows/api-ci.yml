@@ -1,0 +1,152 @@
+name: API CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+    paths:
+      - "api/**"
+      - ".github/workflows/api-ci.yml"
+      - ".github/workflows/api-cd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "api/**"
+      - ".github/workflows/api-ci.yml"
+      - ".github/workflows/api-cd.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache: true
+          cache-dependency-path: api/go.sum
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          install-mode: goinstall
+          working-directory: api
+
+      - name: Check module files
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go mod verify
+
+      - name: Vet
+        run: |
+          go vet ./...
+          go vet -tags=integration,e2e ./...
+
+      - name: Check infrastructure scripts
+        run: bash -n infra/scripts/*.sh
+
+      - name: Build
+        run: go build ./...
+
+      - name: Check generated database code
+        run: |
+          go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+          git diff --exit-code -- pkg/db/queries
+
+      - name: Check generated Swagger documentation
+        run: |
+          go run github.com/swaggo/swag/cmd/swag@v1.16.6 init \
+            -g cmd/ai_translate/main.go \
+            -o docs/swagger \
+            --outputTypes go,json,yaml \
+            --parseDependency \
+            --parseInternal
+          git diff --exit-code -- docs/swagger
+
+      - name: Security scan
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: api/go.mod
+          work-dir: api
+
+  unit-tests:
+    name: Unit Tests
+    needs: quality-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache: true
+          cache-dependency-path: api/go.sum
+
+      - name: Run unit tests
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-unit-coverage
+          path: api/coverage.out
+          if-no-files-found: error
+
+  integration-tests:
+    name: Integration Tests
+    needs: quality-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache: true
+          cache-dependency-path: api/go.sum
+
+      - name: Run integration tests
+        run: go test -race -count=1 -tags=integration -timeout=10m ./test/integration/...
+
+  e2e-tests:
+    name: E2E Tests
+    needs: [unit-tests, integration-tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache: true
+          cache-dependency-path: api/go.sum
+
+      - name: Run end-to-end tests
+        run: go test -race -count=1 -tags=e2e -timeout=10m ./test/e2e/...
