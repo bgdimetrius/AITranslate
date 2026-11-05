@@ -27,31 +27,28 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
-      - name: Resolve tag pointing at tested commit
+      - name: Resolve latest published tag
         id: release
         env:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           mapfile -t RELEASE_TAGS < <(
-            git tag --points-at "$DEPLOY_SHA" \
+            git tag --list \
               | grep -E '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' \
               | sort -V \
               || true
           )
 
           if [ "${#RELEASE_TAGS[@]}" -eq 0 ]; then
-            echo "No Docker-safe GitHub tag points at $DEPLOY_SHA; nothing to deploy."
+            echo "No Docker-safe GitHub tag exists; nothing to deploy."
             echo "tag=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ "${#RELEASE_TAGS[@]}" -ne 1 ]; then
-            echo "ERROR: expected exactly one Docker-safe GitHub tag on $DEPLOY_SHA"
-            printf 'Found: %s\n' "${RELEASE_TAGS[*]}"
-            exit 1
-          fi
+          LATEST_TAG="${RELEASE_TAGS[${#RELEASE_TAGS[@]}-1]}"
 
-          echo "tag=${RELEASE_TAGS[0]}" >> "$GITHUB_OUTPUT"
+          echo "Deploying tested commit $DEPLOY_SHA under latest published tag $LATEST_TAG."
+          echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy API
