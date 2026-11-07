@@ -1,13 +1,13 @@
 basePath: /api/v1
 definitions:
-  analytics.email:
+  internal_analytics.email:
     properties:
       email:
         example: reader@example.com
         format: email
         type: string
     type: object
-  analytics.rating:
+  internal_analytics.rating:
     properties:
       rating:
         enum:
@@ -19,7 +19,7 @@ definitions:
         example: The translation was accurate.
         type: string
     type: object
-  analytics.translationfeedback:
+  internal_analytics.translationfeedback:
     properties:
       assessment:
         type: string
@@ -40,16 +40,16 @@ definitions:
       translator:
         type: string
     type: object
-  interpretate.interpretation:
+  internal_interpretate.interpretation:
     properties:
       meanings:
         items:
-          $ref: '#/definitions/interpretate.meaningCard'
+          $ref: '#/definitions/internal_interpretate.meaningCard'
         type: array
       part_of_speech:
         type: string
     type: object
-  interpretate.meaningCard:
+  internal_interpretate.meaningCard:
     properties:
       context:
         example: Used when greeting someone
@@ -61,13 +61,13 @@ definitions:
         example: hola
         type: string
     type: object
-  interpretate.textReq:
+  internal_interpretate.textReq:
     properties:
       text:
         example: break the ice
         type: string
     type: object
-  languages.Capabilities:
+  internal_languages.Capabilities:
     properties:
       auto_detect:
         type: boolean
@@ -114,7 +114,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/analytics.rating'
+          $ref: '#/definitions/internal_analytics.rating'
       produces:
       - application/json
       responses:
@@ -226,7 +226,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/analytics.email'
+          $ref: '#/definitions/internal_analytics.email'
       produces:
       - application/json
       responses:
@@ -338,7 +338,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/analytics.translationfeedback'
+          $ref: '#/definitions/internal_analytics.translationfeedback'
       produces:
       - application/json
       responses:
@@ -583,7 +583,7 @@ paths:
         in: body
         name: request
         schema:
-          $ref: '#/definitions/interpretate.textReq'
+          $ref: '#/definitions/internal_interpretate.textReq'
       produces:
       - application/json
       responses:
@@ -600,7 +600,7 @@ paths:
               description: Request correlation ID
               type: string
           schema:
-            $ref: '#/definitions/interpretate.interpretation'
+            $ref: '#/definitions/internal_interpretate.interpretation'
         "400":
           description: Unsupported target language, malformed body, or text outside
             the 1-21 word limit
@@ -717,7 +717,7 @@ paths:
         in: body
         name: request
         schema:
-          $ref: '#/definitions/interpretate.textReq'
+          $ref: '#/definitions/internal_interpretate.textReq'
       produces:
       - application/json
       responses:
@@ -850,7 +850,7 @@ paths:
           description: OK
           schema:
             additionalProperties:
-              $ref: '#/definitions/languages.Capabilities'
+              $ref: '#/definitions/internal_languages.Capabilities'
             type: object
       summary: List translation languages
       tags:

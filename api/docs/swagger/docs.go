@@ -47,7 +47,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/analytics.rating"
+                            "$ref": "#/definitions/internal_analytics.rating"
                         }
                     }
                 ],
@@ -208,7 +208,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/analytics.email"
+                            "$ref": "#/definitions/internal_analytics.email"
                         }
                     }
                 ],
@@ -369,7 +369,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/analytics.translationfeedback"
+                            "$ref": "#/definitions/internal_analytics.translationfeedback"
                         }
                     }
                 ],
@@ -715,7 +715,7 @@ const docTemplate = `{
                         "name": "request",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/interpretate.textReq"
+                            "$ref": "#/definitions/internal_interpretate.textReq"
                         }
                     }
                 ],
@@ -723,7 +723,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Structured interpretation",
                         "schema": {
-                            "$ref": "#/definitions/interpretate.interpretation"
+                            "$ref": "#/definitions/internal_interpretate.interpretation"
                         },
                         "headers": {
                             "X-RateLimit-Limit": {
@@ -904,7 +904,7 @@ const docTemplate = `{
                         "name": "request",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/interpretate.textReq"
+                            "$ref": "#/definitions/internal_interpretate.textReq"
                         }
                     }
                 ],
@@ -1087,7 +1087,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "$ref": "#/definitions/languages.Capabilities"
+                                "$ref": "#/definitions/internal_languages.Capabilities"
                             }
                         }
                     }
@@ -1408,7 +1408,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "analytics.email": {
+        "internal_analytics.email": {
             "type": "object",
             "properties": {
                 "email": {
@@ -1418,7 +1418,7 @@ const docTemplate = `{
                 }
             }
         },
-        "analytics.rating": {
+        "internal_analytics.rating": {
             "type": "object",
             "properties": {
                 "rating": {
@@ -1435,7 +1435,7 @@ const docTemplate = `{
                 }
             }
         },
-        "analytics.translationfeedback": {
+        "internal_analytics.translationfeedback": {
             "type": "object",
             "properties": {
                 "assessment": {
@@ -1466,13 +1466,13 @@ const docTemplate = `{
                 }
             }
         },
-        "interpretate.interpretation": {
+        "internal_interpretate.interpretation": {
             "type": "object",
             "properties": {
                 "meanings": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/interpretate.meaningCard"
+                        "$ref": "#/definitions/internal_interpretate.meaningCard"
                     }
                 },
                 "part_of_speech": {
@@ -1480,7 +1480,7 @@ const docTemplate = `{
                 }
             }
         },
-        "interpretate.meaningCard": {
+        "internal_interpretate.meaningCard": {
             "type": "object",
             "properties": {
                 "context": {
@@ -1497,7 +1497,7 @@ const docTemplate = `{
                 }
             }
         },
-        "interpretate.textReq": {
+        "internal_interpretate.textReq": {
             "type": "object",
             "properties": {
                 "text": {
@@ -1506,7 +1506,7 @@ const docTemplate = `{
                 }
             }
         },
-        "languages.Capabilities": {
+        "internal_languages.Capabilities": {
             "type": "object",
             "properties": {
                 "auto_detect": {
