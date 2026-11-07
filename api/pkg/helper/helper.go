@@ -6,6 +6,7 @@ import (
 
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
 )
@@ -33,13 +34,15 @@ func GetLogger(c *echo.Context) *zap.Logger {
 	}
 }
 
-// RecordDailyUsage adds usage to the installation's current-day counters.
-// Accounting is best effort: failures are logged but are not returned to the
-// request handler, so they never replace the provider response.
+// RecordDailyUsage adds usage to the installation's current-day counters. It
+// panics if its preconditions fail or the installation cannot be validated.
+// Once validated, a persistence failure is logged and does not replace the
+// provider response.
 func RecordDailyUsage(ctx context.Context, log *zap.Logger, db DbHandler, userId int, usage *pkg.Usage) {
-	assert(ctx != nil, "")
-	assert(log != nil, "")
-	assert(db != nil, "")
+	validation.MustNotNil("context", ctx)
+	validation.MustNotNil("logger", log)
+	validation.MustNotNil("usage database", db)
+	validation.MustPositiveInt("user ID", userId)
 	assert(func() bool {
 		ok, err := db.ValidateUserId(ctx, int64(userId))
 		if err != nil {
@@ -48,7 +51,13 @@ func RecordDailyUsage(ctx context.Context, log *zap.Logger, db DbHandler, userId
 		}
 		return ok
 	}(), "")
-	assert(usage != nil, "")
+	validation.MustNotNil("usage", usage)
+	validation.MustNonNegativeInt32("translation request count", usage.TranslationRequests)
+	validation.MustNonNegativeInt32("interpretation request count", usage.InterpretationRequests)
+	validation.MustNonNegativeInt32("failed request count", usage.FailedRequests)
+	validation.MustNonNegativeInt64("input character count", usage.InputCharacters)
+	validation.MustNonNegativeInt64("input token count", usage.InputTokens)
+	validation.MustNonNegativeInt64("output token count", usage.OutputTokens)
 	err := db.RecordDailyUsage(ctx, queries.RecordDailyUsageParams{
 		InstallationID:         int64(userId),
 		TranslationRequests:    usage.TranslationRequests,

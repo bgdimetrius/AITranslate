@@ -6,7 +6,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// TestGeneratePairProducesUniqueAccessTokens verifies that immediately reissued access tokens receive distinct JWT IDs.
+// Distinct IDs allow a newly issued token to supersede an otherwise identical
+// token created for the same installation in the same second.
 func TestGeneratePairProducesUniqueAccessTokens(t *testing.T) {
 	const secret = "01234567890123456789012345678901"
 

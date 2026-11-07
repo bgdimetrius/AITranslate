@@ -12,6 +12,7 @@ import (
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
 	"github.com/bgdimetrius/AITranslate/pkg/helper"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
@@ -64,6 +65,8 @@ func setTokenCookies(c *echo.Context, accessToken, refreshToken string) {
 // StartSession validates the installation and persists both credentials that
 // define its active session before exposing the token pair as HTTP-only cookies.
 func StartSession(c *echo.Context, db StartSessionDbHandler, userId int) error {
+	validation.MustNotNil("session database", db)
+	validation.MustPositiveInt("user ID", userId)
 	log := helper.GetLogger(c)
 
 	ok, err := db.ValidateUserId(c.Request().Context(), int64(userId))
@@ -99,6 +102,7 @@ func StartSession(c *echo.Context, db StartSessionDbHandler, userId int) error {
 // recorded for its installation. Rotating a session therefore invalidates the
 // previous signed JWT immediately instead of waiting for its expiry.
 func Authenticate(db AccessTokenDbHandler) echo.MiddlewareFunc {
+	validation.MustNotNil("access token database", db)
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			log := helper.GetLogger(c)
@@ -223,6 +227,8 @@ func (ah *authhandler) RegisterRoutes(g *echo.Group) {
 // Init configures process-wide token signing and cookie security. It must be
 // called before any session is created or authenticated.
 func Init(secret string, isProduction bool) {
+	secret = validation.MustNotBlank("JWT secret", secret)
+	validation.MustMinBytes("JWT secret", secret, 32)
 	jwtSecret = secret
 	production = isProduction
 }

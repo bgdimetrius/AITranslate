@@ -28,8 +28,8 @@ func (s *recordingTelegramSender) Send(message tgbotapi.Chattable) (tgbotapi.Mes
 	return tgbotapi.Message{}, s.sendErr
 }
 
-// TestMiddleware verifies that panic recovery alerts operators without leaking
-// request queries or allowing Telegram failures to break the safe HTTP response.
+// Panic alerts must omit request queries, and Telegram failures must not break
+// the safe HTTP response.
 func TestMiddleware(t *testing.T) {
 	t.Run("request without panic passes through", func(t *testing.T) {
 		log, observed := observedLogger()
@@ -174,6 +174,34 @@ func TestMiddleware(t *testing.T) {
 			t.Fatalf("error logs = %d; want 0", observed.Len())
 		}
 	})
+}
+
+// TestSetTelegramAlertTarget verifies the request-scoped alert target requires
+// both a sender and a non-zero chat identifier.
+func TestSetTelegramAlertTarget(t *testing.T) {
+	c := newTestContext(http.MethodGet, "/health")
+	if panicValue := panicFrom(func() { SetTelegramAlertTarget(c, &recordingTelegramSender{}, -42) }); panicValue != nil {
+		t.Fatalf("SetTelegramAlertTarget(valid) panic = %v", panicValue)
+	}
+	for _, test := range []struct {
+		name string
+		call func()
+	}{
+		{name: "nil sender", call: func() { SetTelegramAlertTarget(c, nil, 42) }},
+		{name: "zero chat ID", call: func() { SetTelegramAlertTarget(c, &recordingTelegramSender{}, 0) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if panicFrom(test.call) == nil {
+				t.Fatal("SetTelegramAlertTarget() did not panic")
+			}
+		})
+	}
+}
+
+func panicFrom(fn func()) (recovered any) {
+	defer func() { recovered = recover() }()
+	fn()
+	return nil
 }
 
 func newTestContext(method string, target string) *echo.Context {

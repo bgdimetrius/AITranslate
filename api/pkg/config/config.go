@@ -14,7 +14,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// Config contains the validated runtime settings for every API subsystem.
+// Config groups the runtime settings for every API subsystem. Load returns a
+// validated Config; callers that construct one directly must call Validate.
 type Config struct {
 	App      AppConfig
 	Server   ServerConfig
@@ -78,7 +79,7 @@ type AuthConfig struct {
 type OpenAIConfig struct {
 	APIKey               string        `env:"OPENAI_API_KEY"`
 	APIKeyFile           string        `env:"OPENAI_API_KEY_FILE"`
-	Model                string        `env:"OPENAI_MODEL" env-default:"gpt-4.1-nano"`
+	Model                string        `env:"OPENAI_MODEL" env-default:"gpt-6-luna"`
 	TranslationLanguages []string      `env:"OPENAI_TRANSLATION_LANGUAGES" env-separator:","`
 	RequestTimeout       time.Duration `env:"OPENAI_REQUEST_TIMEOUT" env-default:"90s"`
 	MaxRetries           int           `env:"OPENAI_MAX_RETRIES" env-default:"2"`
@@ -110,6 +111,8 @@ type PromptConfig struct {
 
 // LimitConfig defines request-size constraints enforced by feature handlers.
 type LimitConfig struct {
+	// TranslationCharacters is retained as the configuration name, but handlers
+	// enforce the limit in UTF-8 bytes for compatibility with the public API.
 	TranslationCharacters int `env:"MAX_TRANSLATION_CHARACTERS" env-default:"10000"`
 }
 

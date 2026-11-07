@@ -47,7 +47,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_analytics.rating"
+                            "$ref": "#/definitions/analytics.rating"
                         }
                     }
                 ],
@@ -208,7 +208,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_analytics.email"
+                            "$ref": "#/definitions/analytics.email"
                         }
                     }
                 ],
@@ -316,6 +316,167 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Session validation or lead persistence failed",
+                        "schema": {
+                            "$ref": "#/definitions/pkg.ErrorResponse"
+                        },
+                        "headers": {
+                            "X-RateLimit-Limit": {
+                                "type": "integer",
+                                "description": "Per-IP burst limit"
+                            },
+                            "X-RateLimit-Remaining": {
+                                "type": "integer",
+                                "description": "Requests remaining in the current limiter state"
+                            },
+                            "X-Request-ID": {
+                                "type": "string",
+                                "description": "Request correlation ID"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/analytics/feedback/translation": {
+            "put": {
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
+                "description": "Upserts one current assessment per installation and translation ID. A higher revision replaces an older assessment; duplicate or stale revisions are accepted without changing stored feedback.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "Record translation feedback",
+                "operationId": "saveTranslationFeedback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Caller-supplied correlation ID; generated when omitted",
+                        "name": "X-Request-ID",
+                        "in": "header"
+                    },
+                    {
+                        "description": "Feedback about a completed translation",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/analytics.translationfeedback"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Translation feedback recorded",
+                        "headers": {
+                            "X-RateLimit-Limit": {
+                                "type": "integer",
+                                "description": "Per-IP burst limit"
+                            },
+                            "X-RateLimit-Remaining": {
+                                "type": "integer",
+                                "description": "Requests remaining in the current limiter state"
+                            },
+                            "X-Request-ID": {
+                                "type": "string",
+                                "description": "Request correlation ID"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Malformed JSON, invalid translation ID or revision, unsupported provider or language, invalid assessment, or text over the configured limit",
+                        "schema": {
+                            "$ref": "#/definitions/pkg.ErrorResponse"
+                        },
+                        "headers": {
+                            "X-RateLimit-Limit": {
+                                "type": "integer",
+                                "description": "Per-IP burst limit"
+                            },
+                            "X-RateLimit-Remaining": {
+                                "type": "integer",
+                                "description": "Requests remaining in the current limiter state"
+                            },
+                            "X-Request-ID": {
+                                "type": "string",
+                                "description": "Request correlation ID"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, expired, or invalid access_token cookie",
+                        "schema": {
+                            "$ref": "#/definitions/pkg.ErrorResponse"
+                        },
+                        "headers": {
+                            "X-RateLimit-Limit": {
+                                "type": "integer",
+                                "description": "Per-IP burst limit"
+                            },
+                            "X-RateLimit-Remaining": {
+                                "type": "integer",
+                                "description": "Requests remaining in the current limiter state"
+                            },
+                            "X-Request-ID": {
+                                "type": "string",
+                                "description": "Request correlation ID"
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Request body exceeds the configured global limit",
+                        "schema": {
+                            "$ref": "#/definitions/pkg.ErrorResponse"
+                        },
+                        "headers": {
+                            "X-RateLimit-Limit": {
+                                "type": "integer",
+                                "description": "Per-IP burst limit"
+                            },
+                            "X-RateLimit-Remaining": {
+                                "type": "integer",
+                                "description": "Requests remaining in the current limiter state"
+                            },
+                            "X-Request-ID": {
+                                "type": "string",
+                                "description": "Request correlation ID"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Per-IP rate limit exceeded",
+                        "schema": {
+                            "$ref": "#/definitions/pkg.ErrorResponse"
+                        },
+                        "headers": {
+                            "Retry-After": {
+                                "type": "integer",
+                                "description": "Seconds until another request may be attempted"
+                            },
+                            "X-RateLimit-Limit": {
+                                "type": "integer",
+                                "description": "Per-IP burst limit"
+                            },
+                            "X-RateLimit-Remaining": {
+                                "type": "integer",
+                                "description": "Requests remaining in the current limiter state"
+                            },
+                            "X-Request-ID": {
+                                "type": "string",
+                                "description": "Request correlation ID"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Authenticated installation is missing from request context or persistence failed",
                         "schema": {
                             "$ref": "#/definitions/pkg.ErrorResponse"
                         },
@@ -554,7 +715,7 @@ const docTemplate = `{
                         "name": "request",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/internal_interpretate.textReq"
+                            "$ref": "#/definitions/interpretate.textReq"
                         }
                     }
                 ],
@@ -562,7 +723,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Structured interpretation",
                         "schema": {
-                            "$ref": "#/definitions/internal_interpretate.interpretation"
+                            "$ref": "#/definitions/interpretate.interpretation"
                         },
                         "headers": {
                             "X-RateLimit-Limit": {
@@ -743,7 +904,7 @@ const docTemplate = `{
                         "name": "request",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/internal_interpretate.textReq"
+                            "$ref": "#/definitions/interpretate.textReq"
                         }
                     }
                 ],
@@ -926,7 +1087,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "$ref": "#/definitions/internal_languages.Capabilities"
+                                "$ref": "#/definitions/languages.Capabilities"
                             }
                         }
                     }
@@ -1247,7 +1408,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "internal_analytics.email": {
+        "analytics.email": {
             "type": "object",
             "properties": {
                 "email": {
@@ -1257,7 +1418,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_analytics.rating": {
+        "analytics.rating": {
             "type": "object",
             "properties": {
                 "rating": {
@@ -1274,13 +1435,44 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_interpretate.interpretation": {
+        "analytics.translationfeedback": {
+            "type": "object",
+            "properties": {
+                "assessment": {
+                    "type": "string"
+                },
+                "revision": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "source_lang": {
+                    "type": "string"
+                },
+                "source_text": {
+                    "type": "string"
+                },
+                "target_lang": {
+                    "type": "string"
+                },
+                "translation_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "translation_text": {
+                    "type": "string"
+                },
+                "translator": {
+                    "type": "string"
+                }
+            }
+        },
+        "interpretate.interpretation": {
             "type": "object",
             "properties": {
                 "meanings": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/internal_interpretate.meaningCard"
+                        "$ref": "#/definitions/interpretate.meaningCard"
                     }
                 },
                 "part_of_speech": {
@@ -1288,7 +1480,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_interpretate.meaningCard": {
+        "interpretate.meaningCard": {
             "type": "object",
             "properties": {
                 "context": {
@@ -1305,7 +1497,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_interpretate.textReq": {
+        "interpretate.textReq": {
             "type": "object",
             "properties": {
                 "text": {
@@ -1314,7 +1506,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_languages.Capabilities": {
+        "languages.Capabilities": {
             "type": "object",
             "properties": {
                 "auto_detect": {

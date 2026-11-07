@@ -48,7 +48,8 @@ type storedUsage struct {
 	outputTokens           int64
 }
 
-// TestInterpretationRoutes verifies real authentication, middleware, service, provider decoding, and usage persistence.
+// TestInterpretationRoutes verifies real authentication, request validation,
+// provider decoding, and usage persistence.
 func TestInterpretationRoutes(t *testing.T) {
 	t.Run("interprets authenticated query text", func(t *testing.T) {
 		fixture := newRouteFixture(t)

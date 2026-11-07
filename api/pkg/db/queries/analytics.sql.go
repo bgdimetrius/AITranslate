@@ -7,6 +7,8 @@ package queries
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const saveApplicationFeedback = `-- name: SaveApplicationFeedback :exec
@@ -44,5 +46,63 @@ type SaveFeedbackLeadParams struct {
 
 func (q *Queries) SaveFeedbackLead(ctx context.Context, arg SaveFeedbackLeadParams) error {
 	_, err := q.db.Exec(ctx, saveFeedbackLead, arg.InstallationID, arg.Email)
+	return err
+}
+
+const saveTranslationFeedback = `-- name: SaveTranslationFeedback :exec
+INSERT INTO translation_feedback (
+    installation_id,
+    translation_id,
+    revision,
+    provider,
+    source_lang,
+    target_lang,
+    source_text,
+    translation_text,
+    assessment
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9
+)
+ON CONFLICT (installation_id, translation_id)
+DO UPDATE SET
+    assessment = EXCLUDED.assessment,
+    revision = EXCLUDED.revision,
+    updated_at = NOW()
+WHERE translation_feedback.revision < EXCLUDED.revision
+`
+
+type SaveTranslationFeedbackParams struct {
+	InstallationID  int64
+	TranslationID   uuid.UUID
+	Revision        int32
+	Provider        string
+	SourceLang      string
+	TargetLang      string
+	SourceText      string
+	TranslationText string
+	Assessment      string
+}
+
+func (q *Queries) SaveTranslationFeedback(ctx context.Context, arg SaveTranslationFeedbackParams) error {
+	_, err := q.db.Exec(ctx, saveTranslationFeedback,
+		arg.InstallationID,
+		arg.TranslationID,
+		arg.Revision,
+		arg.Provider,
+		arg.SourceLang,
+		arg.TargetLang,
+		arg.SourceText,
+		arg.TranslationText,
+		arg.Assessment,
+	)
 	return err
 }

@@ -91,9 +91,8 @@ func (c *bufferedConn) Read(data []byte) (int, error) {
 	return c.reader.Read(data)
 }
 
-// TestAPIEndToEnd covers the documented public route prefix, installation session lifecycle,
-// immediate credential invalidation, language catalog, authenticated feedback, malformed input,
-// authentication, and body-size boundaries.
+// TestAPIEndToEnd verifies the documented public lifecycle, authentication,
+// validation, security boundaries, and response metadata against a real API.
 func TestAPIEndToEnd(t *testing.T) {
 	testcontainers.SkipIfProviderIsNotHealthy(t)
 
@@ -152,6 +151,42 @@ func TestAPIEndToEnd(t *testing.T) {
 		requireStatus(t, response, http.StatusNoContent)
 		requireEmptyBody(t, response.Body)
 		requireDocumentedResponseHeaders(t, response)
+	})
+
+	t.Run("accepts authenticated translation feedback", func(t *testing.T) {
+		client := newAPIClient(t)
+		createInstallation(t, client, baseURL)
+		body := `{"translator":"chatgpt","source_lang":"english","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"like"}`
+
+		response := doRequest(t, client, http.MethodPut, baseURL+apiPath+"/analytics/feedback/translation", "application/json", body)
+		defer response.Body.Close()
+
+		requireStatus(t, response, http.StatusNoContent)
+		requireEmptyBody(t, response.Body)
+		requireDocumentedResponseHeaders(t, response)
+	})
+
+	t.Run("rejects invalid translation feedback", func(t *testing.T) {
+		client := newAPIClient(t)
+		createInstallation(t, client, baseURL)
+		body := `{"translator":"chatgpt","source_lang":"english","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"neutral"}`
+
+		response := doRequest(t, client, http.MethodPut, baseURL+apiPath+"/analytics/feedback/translation", "application/json", body)
+		defer response.Body.Close()
+
+		requireStatus(t, response, http.StatusBadRequest)
+		requireJSONResponse(t, response)
+	})
+
+	t.Run("rejects translation feedback without authentication", func(t *testing.T) {
+		client := newAPIClient(t)
+		body := `{"translator":"chatgpt","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"like"}`
+
+		response := doRequest(t, client, http.MethodPut, baseURL+apiPath+"/analytics/feedback/translation", "application/json", body)
+		defer response.Body.Close()
+
+		requireStatus(t, response, http.StatusUnauthorized)
+		requireJSONResponse(t, response)
 	})
 
 	t.Run("rotates credentials and invalidates the prior session", func(t *testing.T) {

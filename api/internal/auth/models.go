@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
 )
@@ -22,8 +23,9 @@ type authhandler struct {
 	db DbHandler
 }
 
-// NewAuthHandler returns an authentication handler backed by db.
+// NewAuthHandler panics if db is nil.
 func NewAuthHandler(db DbHandler) AuthHandler {
+	validation.MustNotNil("authentication database", db)
 	return &authhandler{db: db}
 }
 

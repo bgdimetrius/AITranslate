@@ -4,34 +4,24 @@ package languages
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/helper"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
 )
 
-const providerContextKey = "translation_provider"
-
 // SetProvider records the selected translation provider for downstream
 // language validation middleware.
 func SetProvider(c *echo.Context, provider Provider) {
-	c.Set(providerContextKey, provider)
-}
-
-// UseProvider establishes a fixed provider for routes that do not offer a
-// provider selector, such as OpenAI-backed interpretation.
-func UseProvider(provider Provider) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			SetProvider(c, provider)
-			return next(c)
-		}
-	}
+	validation.MustNotBlank("provider", string(provider))
+	c.Set(pkg.Provider, provider)
 }
 
 func requestProvider(c *echo.Context) (Provider, bool) {
-	provider, ok := c.Get(providerContextKey).(Provider)
+	provider, ok := c.Get(pkg.Provider).(Provider)
 	return provider, ok
 }
 
@@ -45,20 +35,24 @@ func (catalog *Catalog) ValidateSourceLang(next echo.HandlerFunc) echo.HandlerFu
 			log.Error("translation provider is missing before language validation")
 			return echo.NewHTTPError(http.StatusInternalServerError, pkg.SmthWW)
 		}
-		if c.QueryParam("source_lang") == "" && catalog.SupportsAutoDetect(provider) {
-			return next(c)
+
+		sourceLangStr, ok := c.Get(pkg.SourceLang).(string)
+		if !ok {
+			sourceLangStr = c.QueryParam(pkg.SourceLang)
 		}
 
-		sourceLang, ok := catalog.ResolveSource(provider, c.QueryParam("source_lang"))
-		if !ok {
+		sourceLang, err := catalog.validator.ValidateSource(provider, sourceLangStr)
+		if err != nil {
 			log.Warn("source lang is invalid",
-				zap.String("provider", string(provider)),
-				zap.String("source_lang", c.QueryParam("source_lang")),
+				zap.String(pkg.Provider, string(provider)),
+				zap.String(pkg.SourceLang, sourceLangStr),
 			)
 			return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput)
 		}
 
-		c.Set("source_lang", sourceLang)
+		if strings.TrimSpace(sourceLang) != "" {
+			c.Set(pkg.SourceLang, sourceLang)
+		}
 		return next(c)
 	}
 }
@@ -74,16 +68,20 @@ func (catalog *Catalog) ValidateTargetLang(next echo.HandlerFunc) echo.HandlerFu
 			return echo.NewHTTPError(http.StatusInternalServerError, pkg.SmthWW)
 		}
 
-		targetLang, ok := catalog.ResolveTarget(provider, c.QueryParam("target_lang"))
+		targetLangStr, ok := c.Get(pkg.TargetLang).(string)
 		if !ok {
+			targetLangStr = c.QueryParam(pkg.TargetLang)
+		}
+		targetLang, err := catalog.validator.ValidateTarget(provider, targetLangStr)
+		if err != nil {
 			log.Warn("target lang is invalid",
-				zap.String("provider", string(provider)),
-				zap.String("target_lang", c.QueryParam("target_lang")),
+				zap.String(pkg.Provider, string(provider)),
+				zap.String(pkg.TargetLang, targetLangStr),
 			)
 			return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput)
 		}
 
-		c.Set("target_lang", targetLang)
+		c.Set(pkg.TargetLang, targetLang)
 		return next(c)
 	}
 }

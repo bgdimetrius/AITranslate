@@ -13,7 +13,8 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// TestLanguageRoutes verifies that the real catalog and Echo route expose detached, normalized provider capabilities.
+// TestLanguageRoutes verifies that the real catalog and Echo route expose
+// detached, normalized provider capabilities.
 func TestLanguageRoutes(t *testing.T) {
 	catalog, err := languages.NewCatalog(map[languages.Provider]languages.Capabilities{
 		languages.ProviderChatGPT: {

@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestLoadReadsOpenAITranslationLanguages protects the comma-separated
-// language configuration consumed when the provider catalog is constructed.
+// The provider catalog depends on preserving every configured language from
+// the comma-separated environment value.
 func TestLoadReadsOpenAITranslationLanguages(t *testing.T) {
 	setValidEnvironment(t)
 	t.Setenv("OPENAI_TRANSLATION_LANGUAGES", "en, de,ka")
@@ -25,8 +25,8 @@ func TestLoadReadsOpenAITranslationLanguages(t *testing.T) {
 	}
 }
 
-// TestLoadValidatesTelegramConfiguration ensures production cannot silently
-// start without panic alerts and prevents partially configured alert targets.
+// Production must not start without panic alerts, and partial alert targets
+// are invalid in every environment.
 func TestLoadValidatesTelegramConfiguration(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -69,8 +69,8 @@ func TestLoadValidatesTelegramConfiguration(t *testing.T) {
 	}
 }
 
-// TestLoadReadsTelegramBotAPIKeyFile protects the Docker secret-file path used
-// by production without exposing the credential through a container variable.
+// Production reads the bot credential from a Docker secret file so it need not
+// be exposed through a container environment value.
 func TestLoadReadsTelegramBotAPIKeyFile(t *testing.T) {
 	setValidEnvironment(t)
 	secretFile := filepath.Join(t.TempDir(), "telegram_bot_api_key")

@@ -5,6 +5,7 @@
 package queries
 
 import (
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -45,4 +46,18 @@ type Installation struct {
 	CreatedAt  pgtype.Timestamptz
 	LastSeenAt pgtype.Timestamptz
 	DisabledAt pgtype.Timestamptz
+}
+
+type TranslationFeedback struct {
+	InstallationID  int64
+	TranslationID   uuid.UUID
+	Revision        int32
+	Provider        string
+	SourceLang      string
+	TargetLang      string
+	SourceText      string
+	TranslationText string
+	Assessment      string
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }

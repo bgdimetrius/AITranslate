@@ -4,58 +4,16 @@ package translate
 
 import (
 	"net/http"
-	"strings"
 
-	"github.com/bgdimetrius/AITranslate/internal/languages"
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/helper"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
 )
 
-func (th *trslhandler) validateInputText(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		log := helper.GetLogger(c)
-		text := c.QueryParam("text")
-
-		if text == "" || len(text) > th.allowedTextLength {
-			log.Warn("text is invalid", zap.String("text", text))
-			return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput)
-		}
-
-		c.Set("text", text)
-		c.Set("allowed_length", th.allowedTextLength)
-		return next(c)
-	}
-}
-
-func (th *trslhandler) validateTranslator(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		var translator Translator
-		log := helper.GetLogger(c)
-
-		translatorName := strings.ToLower(c.QueryParam("translator"))
-		switch translatorName {
-		case "chatgpt":
-			log.Debug("gpt is the translator", zap.String("name", translatorName))
-			translator = th.gpt
-			languages.SetProvider(c, languages.ProviderChatGPT)
-		case "deepl":
-			log.Debug("deepl is the translator", zap.String("name", translatorName))
-			translator = th.deepl
-			languages.SetProvider(c, languages.ProviderDeepL)
-		default:
-			log.Warn("unknown translator's name", zap.String("translator_name", translatorName))
-			return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput)
-		}
-
-		c.Set("translator", translator)
-		return next(c)
-	}
-}
-
-// Translate delegates to the provider selected by middleware, streams its
-// response, and records the operation's usage on a best-effort basis.
+// Translate validates query input, writes the selected provider's response,
+// and records usage after the provider attempt.
 // @Summary Translate text
 // @Description Authenticates the installation, validates both language codes, selects the requested provider, and enforces the configured text-size limit before calling the provider.
 // @Description chatgpt streams raw model output and may have already written partial output if the provider fails. deepl returns a JSON object containing source_lang and text.
@@ -82,20 +40,40 @@ func (th *trslhandler) validateTranslator(next echo.HandlerFunc) echo.HandlerFun
 // @Router /translate [get]
 func (th *trslhandler) Translate(c *echo.Context) error {
 	log := helper.GetLogger(c)
-	tr := new(translationReq)
-	// Route middleware establishes these typed context values before the
-	// handler runs. Direct calls to Translate must preserve the same invariant.
-	tr.UserId = c.Get("user_id").(int)
-	sl := c.Get("source_lang")
-	if sl != nil {
-		tr.withSource = true
-		tr.SourceLang = sl.(string)
+	input, err := validation.ValidateTranslation(th.validator, validation.TranslationInput{
+		Provider:   c.QueryParam("translator"),
+		SourceLang: c.QueryParam("source_lang"),
+		TargetLang: c.QueryParam("target_lang"),
+		Text:       c.QueryParam("text"),
+	}, th.allowedTextLength)
+	if err != nil {
+		log.Warn("translation input is invalid", zap.Error(err))
+		return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput).Wrap(err)
 	}
-	tr.TargetLang = c.Get("target_lang").(string)
-	tr.Text = c.Get("text").(string)
-	tr.allowedLength = c.Get("allowed_length").(int)
 
-	translator := c.Get("translator").(Translator)
+	userID, ok := c.Get(pkg.UserId).(int)
+	if !ok || userID <= 0 {
+		return echo.NewHTTPError(http.StatusInternalServerError, pkg.SmthWW)
+	}
+
+	tr := &translationReq{
+		SourceLang:    input.Languages.Source,
+		TargetLang:    input.Languages.Target,
+		UserId:        userID,
+		Text:          input.Text,
+		withSource:    input.Languages.Source != "",
+		allowedLength: th.allowedTextLength,
+	}
+
+	var translator Translator
+	switch input.Languages.Provider {
+	case validation.ProviderChatGPT:
+		translator = th.gpt
+	case validation.ProviderDeepL:
+		translator = th.deepl
+	default:
+		return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput)
+	}
 
 	usage, err := translator.Do(c.Request().Context(), log, c.Response(), tr)
 	usage.InputCharacters = int64(len([]rune(tr.Text)))
@@ -114,11 +92,7 @@ func (th *trslhandler) Translate(c *echo.Context) error {
 	return nil
 }
 
-// RegisterRoutes installs the authenticated translation endpoint and its input
-// validation middleware.
+// RegisterRoutes installs the authenticated translation endpoint.
 func (th *trslhandler) RegisterRoutes(g *echo.Group, authenticate echo.MiddlewareFunc) {
-	g.GET("/translate", th.Translate,
-		authenticate, th.validateTranslator,
-		th.languages.ValidateSourceLang, th.languages.ValidateTargetLang, th.validateInputText,
-	)
+	g.GET("/translate", th.Translate, authenticate)
 }

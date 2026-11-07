@@ -49,7 +49,8 @@ func (db *authDBStub) RotateSession(_ context.Context, params queries.RotateSess
 	return db.rotateRows, db.rotateErr
 }
 
-// TestStartSession covers installation validation, complete active-session persistence, cookie issuance, and pre-cookie failures.
+// TestStartSession covers installation validation, complete session persistence,
+// cookie issuance, and failures that must not expose credentials.
 func TestStartSession(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -118,7 +119,8 @@ func TestStartSession(t *testing.T) {
 	}
 }
 
-// TestAuthenticate covers JWT validation and the active-session check that immediately rejects superseded access tokens.
+// TestAuthenticate covers JWT validation and active-token checks that reject
+// superseded or otherwise invalid sessions.
 func TestAuthenticate(t *testing.T) {
 	Init(unitJWTSecret, false)
 	validPair, err := generatePair(zap.NewNop(), 42, unitJWTSecret)
@@ -179,7 +181,8 @@ func TestAuthenticate(t *testing.T) {
 	}
 }
 
-// TestAuthHandlerHandshake covers atomic credential rotation, refresh replay rejection, malformed credentials, generation failure, and persistence failure.
+// TestAuthHandlerHandshake covers credential rotation, replay rejection,
+// malformed credentials, token-generation failure, and persistence failure.
 func TestAuthHandlerHandshake(t *testing.T) {
 	validRefresh := "refresh-token"
 	expiredAccess := signAccessToken(t, "42", unitJWTSecret, time.Now().Add(-time.Hour), "expired-token-id")
@@ -216,11 +219,13 @@ func TestAuthHandlerHandshake(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			secret := unitJWTSecret
+			Init(unitJWTSecret, false)
 			if test.emptySecret {
-				secret = ""
+				// Handshake still documents token-generation failures as a 500.
+				// Bypass Init's startup guard to exercise that runtime boundary.
+				jwtSecret = ""
+				t.Cleanup(func() { Init(unitJWTSecret, false) })
 			}
-			Init(secret, false)
 			db := &authDBStub{
 				valid:      true,
 				rotateRows: test.rotateRows,
@@ -276,6 +281,30 @@ func TestAuthHandlerHandshake(t *testing.T) {
 	}
 }
 
+// TestInit validates the documented JWT-secret startup requirements.
+func TestInit(t *testing.T) {
+	tests := []struct {
+		name   string
+		secret string
+		panics bool
+	}{
+		{name: "accepts 32-byte secret", secret: unitJWTSecret},
+		{name: "trims surrounding whitespace", secret: "  " + unitJWTSecret + "  "},
+		{name: "rejects blank secret", secret: "  ", panics: true},
+		{name: "rejects short secret", secret: "too-short", panics: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			panicked := didPanic(func() { Init(test.secret, false) })
+			if panicked != test.panics {
+				t.Fatalf("Init() panicked = %t; want %t", panicked, test.panics)
+			}
+		})
+	}
+	Init(unitJWTSecret, false)
+}
+
 func newAuthContext(method, target string) (*echo.Context, *httptest.ResponseRecorder) {
 	e := echo.New()
 	recorder := httptest.NewRecorder()
@@ -324,4 +353,12 @@ func requireAuthHTTPError(t *testing.T, err error, code int, message string) {
 	if httpErr.Message != message {
 		t.Fatalf("HTTP error message = %v; want %q", httpErr.Message, message)
 	}
+}
+
+func didPanic(fn func()) (panicked bool) {
+	defer func() {
+		panicked = recover() != nil
+	}()
+	fn()
+	return false
 }

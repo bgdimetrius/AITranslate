@@ -1,38 +1,43 @@
 <script lang="ts" setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, watch } from "vue";
 import LanguageSelector from "./LanguageSelector.vue";
 import SwapButton from "./LanguageSwitcher.vue";
+import { useLanguagePreferences } from "@/composables/useLanguagePreferences";
 import { useLanguages } from "@/composables/useLanguages";
+import { pickPreferredTarget } from "@/utils/languages";
 
 const { data, load } = useLanguages();
+const {
+  source,
+  target,
+  sourceChosen,
+  targetChosen,
+  chooseSource,
+  chooseTarget,
+  chooseBoth,
+  hydrate: hydratePreferences,
+} = useLanguagePreferences();
 
-const DEFAULT_TARGET = "en-us";
-
-const provider = ref("");
-const source = ref("");
-const target = ref("");
-
-const caps = computed(() => data.value[provider.value]);
+const caps = computed(() => data.value.deepl);
 const sourceOptions = computed(() =>
   caps.value ? [...(caps.value.auto_detect ? ["auto"] : []), ...caps.value.source] : []
 );
 const targetOptions = computed(() => caps.value?.target ?? []);
 
-function pickDefaultTarget(list: string[]) {
-  return list.find((l) => l.toLowerCase() === DEFAULT_TARGET) ?? list[0] ?? "";
-}
-
-watch(data, (d) => {
-  if (!provider.value) provider.value = Object.keys(d)[0] ?? "";
-});
-
 watch(
-  [sourceOptions, targetOptions],
+  [sourceOptions, targetOptions, source, target, sourceChosen, targetChosen],
   ([s, t]) => {
-    if (!s.includes(source.value)) source.value = s[0] ?? "";
-    if (!t.includes(target.value)) target.value = pickDefaultTarget(t);
+    if (!sourceChosen.value || !s.includes(source.value)) {
+      if (sourceChosen.value) sourceChosen.value = false;
+      source.value =
+        s.find((language) => language.toLowerCase() === "auto") ?? s[0] ?? "";
+    }
+    if (!targetChosen.value || !t.includes(target.value)) {
+      if (targetChosen.value) targetChosen.value = false;
+      target.value = pickPreferredTarget(t);
+    }
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 const canSwap = computed(
@@ -45,17 +50,29 @@ const canSwap = computed(
 function swap() {
   if (!canSwap.value) return;
   const s = source.value;
-  source.value = target.value;
-  target.value = s;
+  chooseBoth(target.value, s);
 }
 
-onMounted(load);
+onMounted(() => {
+  void hydratePreferences();
+  void load();
+});
 </script>
 
 <template>
   <div class="flex items-center justify-center gap-3.5 py-3 px-4 bg-(--lang-selector-bg) border-b border-(--border-color)">
-    <LanguageSelector v-model="source" :options="sourceOptions" label="Source language" />
+    <LanguageSelector
+      v-model="source"
+      :options="sourceOptions"
+      label="Source language"
+      @update:model-value="chooseSource"
+    />
     <SwapButton :disabled="!canSwap" @swap="swap" />
-    <LanguageSelector v-model="target" :options="targetOptions" label="Target language" />
+    <LanguageSelector
+      v-model="target"
+      :options="targetOptions"
+      label="Target language"
+      @update:model-value="chooseTarget"
+    />
   </div>
 </template>

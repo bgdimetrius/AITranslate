@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/labstack/echo/v5"
 )
 
@@ -17,8 +18,9 @@ type userhandler struct {
 	db DbHandler
 }
 
-// NewUserHandler returns a provisioning handler backed by db.
+// NewUserHandler panics if db is nil.
 func NewUserHandler(db DbHandler) UserHandler {
+	validation.MustNotNil("users database", db)
 	return &userhandler{db: db}
 }
 

@@ -2,11 +2,19 @@
 // features.
 package pkg
 
-// Stable client-facing error messages keep internal failures out of responses.
 const (
+	// Client-facing messages are intentionally stable and omit internal failure
+	// details.
 	InvalidInput    = "invalid input"
 	SmthWW          = "something went wrong"
 	RequestTimedOut = "request timed out"
+
+	// These keys form the request-context contract between middleware and
+	// handlers.
+	UserId     = "user_id"
+	SourceLang = "source_lang"
+	TargetLang = "target_lang"
+	Provider   = "translation_provider"
 )
 
 // ErrorResponse is the JSON envelope emitted by Echo's global error handler.

@@ -1,13 +1,13 @@
 basePath: /api/v1
 definitions:
-  internal_analytics.email:
+  analytics.email:
     properties:
       email:
         example: reader@example.com
         format: email
         type: string
     type: object
-  internal_analytics.rating:
+  analytics.rating:
     properties:
       rating:
         enum:
@@ -19,16 +19,37 @@ definitions:
         example: The translation was accurate.
         type: string
     type: object
-  internal_interpretate.interpretation:
+  analytics.translationfeedback:
+    properties:
+      assessment:
+        type: string
+      revision:
+        minimum: 1
+        type: integer
+      source_lang:
+        type: string
+      source_text:
+        type: string
+      target_lang:
+        type: string
+      translation_id:
+        format: uuid
+        type: string
+      translation_text:
+        type: string
+      translator:
+        type: string
+    type: object
+  interpretate.interpretation:
     properties:
       meanings:
         items:
-          $ref: '#/definitions/internal_interpretate.meaningCard'
+          $ref: '#/definitions/interpretate.meaningCard'
         type: array
       part_of_speech:
         type: string
     type: object
-  internal_interpretate.meaningCard:
+  interpretate.meaningCard:
     properties:
       context:
         example: Used when greeting someone
@@ -40,13 +61,13 @@ definitions:
         example: hola
         type: string
     type: object
-  internal_interpretate.textReq:
+  interpretate.textReq:
     properties:
       text:
         example: break the ice
         type: string
     type: object
-  internal_languages.Capabilities:
+  languages.Capabilities:
     properties:
       auto_detect:
         type: boolean
@@ -93,7 +114,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_analytics.rating'
+          $ref: '#/definitions/analytics.rating'
       produces:
       - application/json
       responses:
@@ -205,7 +226,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_analytics.email'
+          $ref: '#/definitions/analytics.email'
       produces:
       - application/json
       responses:
@@ -297,6 +318,121 @@ paths:
       security:
       - CookieAuth: []
       summary: Register a feedback lead
+      tags:
+      - analytics
+  /analytics/feedback/translation:
+    put:
+      consumes:
+      - application/json
+      description: Upserts one current assessment per installation and translation
+        ID. A higher revision replaces an older assessment; duplicate or stale revisions
+        are accepted without changing stored feedback.
+      operationId: saveTranslationFeedback
+      parameters:
+      - description: Caller-supplied correlation ID; generated when omitted
+        in: header
+        name: X-Request-ID
+        type: string
+      - description: Feedback about a completed translation
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/analytics.translationfeedback'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Translation feedback recorded
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+        "400":
+          description: Malformed JSON, invalid translation ID or revision, unsupported
+            provider or language, invalid assessment, or text over the configured
+            limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "401":
+          description: Missing, expired, or invalid access_token cookie
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "413":
+          description: Request body exceeds the configured global limit
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "429":
+          description: Per-IP rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until another request may be attempted
+              type: integer
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+        "500":
+          description: Authenticated installation is missing from request context
+            or persistence failed
+          headers:
+            X-RateLimit-Limit:
+              description: Per-IP burst limit
+              type: integer
+            X-RateLimit-Remaining:
+              description: Requests remaining in the current limiter state
+              type: integer
+            X-Request-ID:
+              description: Request correlation ID
+              type: string
+          schema:
+            $ref: '#/definitions/pkg.ErrorResponse'
+      security:
+      - CookieAuth: []
+      summary: Record translation feedback
       tags:
       - analytics
   /auth/handshake:
@@ -447,7 +583,7 @@ paths:
         in: body
         name: request
         schema:
-          $ref: '#/definitions/internal_interpretate.textReq'
+          $ref: '#/definitions/interpretate.textReq'
       produces:
       - application/json
       responses:
@@ -464,7 +600,7 @@ paths:
               description: Request correlation ID
               type: string
           schema:
-            $ref: '#/definitions/internal_interpretate.interpretation'
+            $ref: '#/definitions/interpretate.interpretation'
         "400":
           description: Unsupported target language, malformed body, or text outside
             the 1-21 word limit
@@ -581,7 +717,7 @@ paths:
         in: body
         name: request
         schema:
-          $ref: '#/definitions/internal_interpretate.textReq'
+          $ref: '#/definitions/interpretate.textReq'
       produces:
       - application/json
       responses:
@@ -714,7 +850,7 @@ paths:
           description: OK
           schema:
             additionalProperties:
-              $ref: '#/definitions/internal_languages.Capabilities'
+              $ref: '#/definitions/languages.Capabilities'
             type: object
       summary: List translation languages
       tags:

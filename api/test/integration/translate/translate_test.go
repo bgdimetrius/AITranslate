@@ -49,7 +49,8 @@ type storedUsage struct {
 	outputTokens           int64
 }
 
-// TestTranslationRoutes verifies both real provider adapters through the authenticated HTTP route and database accounting.
+// TestTranslationRoutes verifies both real provider adapters through the
+// authenticated HTTP route and database accounting.
 func TestTranslationRoutes(t *testing.T) {
 	t.Run("streams a ChatGPT translation with source auto-detection", func(t *testing.T) {
 		fixture := newRouteFixture(t, 100)

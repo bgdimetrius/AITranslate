@@ -6,6 +6,7 @@ import (
 	"github.com/bgdimetrius/AITranslate/internal/languages"
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/helper"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/labstack/echo/v5"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
@@ -34,7 +35,7 @@ type DbHandler interface {
 type interphandler struct {
 	service   InterpretationService
 	db        DbHandler
-	languages *languages.Catalog
+	validator *validation.Catalog
 }
 
 type interpservice struct {
@@ -45,14 +46,24 @@ type interpservice struct {
 	analyzeprompt string
 }
 
-// NewInterpretationHandler returns an HTTP handler backed by service and db.
+// NewInterpretationHandler panics unless all dependencies and the shared
+// language catalog are available.
 func NewInterpretationHandler(service InterpretationService, db DbHandler, catalog *languages.Catalog) InterpretationHandler {
-	return &interphandler{service: service, db: db, languages: catalog}
+	validation.MustNotNil("interpretation service", service)
+	validation.MustNotNil("interpretation database", db)
+	validation.MustNotNil("language catalog", catalog)
+	validation.MustNotNil("language validator", catalog.Validator())
+	return &interphandler{service: service, db: db, validator: catalog.Validator()}
 }
 
 // NewInterpretationService configures the model prompts used for structured
 // interpretation and suitability analysis.
 func NewInterpretationService(db DbHandler, model shared.ChatModel, client openai.Client, prompt, analyzeprompt string) InterpretationService {
+	validation.MustNotNil("interpretation database", db)
+	validation.MustNotBlank("OpenAI model", string(model))
+	validation.MustNotZero("OpenAI client", client)
+	prompt = validation.MustNotBlank("interpretation prompt", prompt)
+	analyzeprompt = validation.MustNotBlank("analysis prompt", analyzeprompt)
 	return &interpservice{
 		model:         model,
 		client:        client,

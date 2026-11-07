@@ -8,17 +8,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bgdimetrius/AITranslate/internal/languages"
 	"github.com/bgdimetrius/AITranslate/pkg"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
 )
 
 type analyticsServiceStub struct {
-	feedbackErr error
-	leadErr     error
-	userID      int
-	feedback    *rating
-	leadEmail   string
+	feedbackErr         error
+	leadErr             error
+	translationErr      error
+	userID              int
+	feedback            *rating
+	leadEmail           string
+	translationFeedback *validation.TranslationFeedback
 }
 
 func (service *analyticsServiceStub) SaveApplicationFeedback(_ context.Context, _ *zap.Logger, userID int, feedback rating) error {
@@ -34,6 +39,13 @@ func (service *analyticsServiceStub) SaveFeedbackLead(_ context.Context, _ *zap.
 	return service.leadErr
 }
 
+func (service *analyticsServiceStub) SaveTranslationFeedback(_ context.Context, _ *zap.Logger, userID int, feedback validation.TranslationFeedback) error {
+	service.userID = userID
+	feedbackCopy := feedback
+	service.translationFeedback = &feedbackCopy
+	return service.translationErr
+}
+
 func newAnalyticsContext(method, target, body string) (*echo.Context, *httptest.ResponseRecorder) {
 	e := echo.New()
 	recorder := httptest.NewRecorder()
@@ -45,7 +57,8 @@ func newAnalyticsContext(method, target, body string) (*echo.Context, *httptest.
 	return c, recorder
 }
 
-// TestAnalyticsHandlerApplicationFeedback covers accepted ratings, the byte-length boundary, malformed input, and persistence failure.
+// TestAnalyticsHandlerApplicationFeedback covers accepted ratings, the byte
+// boundary, malformed input, and persistence failure.
 func TestAnalyticsHandlerApplicationFeedback(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -114,7 +127,8 @@ func TestAnalyticsHandlerApplicationFeedback(t *testing.T) {
 	}
 }
 
-// TestAnalyticsHandlerRegisterFeedbackLead covers whitespace trimming, plain-address validation, malformed input, and persistence failure.
+// TestAnalyticsHandlerRegisterFeedbackLead covers whitespace trimming, plain
+// address validation, malformed input, and persistence failure.
 func TestAnalyticsHandlerRegisterFeedbackLead(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -172,7 +186,122 @@ func TestAnalyticsHandlerRegisterFeedbackLead(t *testing.T) {
 	}
 }
 
+// TestAnalyticsHandlerTranslationFeedback covers validation, normalized service
+// input, successful persistence, and persistence failure.
+func TestAnalyticsHandlerTranslationFeedback(t *testing.T) {
+	validBody := `{"translation_id":"8bdf29a7-54d2-48ee-bd2b-c0ae79af6831","revision":1,"translator":"chatgpt","source_lang":"english","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"LIKE"}`
+	validFeedback := validation.TranslationFeedback{
+		TranslationID:   uuid.MustParse("8bdf29a7-54d2-48ee-bd2b-c0ae79af6831"),
+		Revision:        1,
+		Languages:       validation.LanguageSelection{Provider: validation.ProviderChatGPT, Source: "English", Target: "Spanish"},
+		SourceText:      "hello",
+		TranslationText: "hola",
+		Assessment:      "like",
+	}
+	tests := []struct {
+		name         string
+		body         string
+		userID       any
+		legacy       bool
+		serviceErr   error
+		wantCode     int
+		wantMessage  string
+		wantFeedback *validation.TranslationFeedback
+	}{
+		{name: "valid feedback is persisted", body: validBody, userID: 42, wantCode: http.StatusNoContent, wantFeedback: &validFeedback},
+		{name: "persistence failure", body: validBody, userID: 42, serviceErr: errors.New("database unavailable"), wantCode: http.StatusInternalServerError, wantMessage: pkg.SmthWW, wantFeedback: &validFeedback},
+		{name: "malformed JSON", body: `{`, userID: 42, wantCode: http.StatusBadRequest, wantMessage: pkg.InvalidInput},
+		{name: "invalid translation ID", body: strings.Replace(validBody, `"8bdf29a7-54d2-48ee-bd2b-c0ae79af6831"`, `"invalid"`, 1), userID: 42, wantCode: http.StatusBadRequest, wantMessage: pkg.InvalidInput},
+		{name: "invalid revision", body: strings.Replace(validBody, `"revision":1`, `"revision":0`, 1), userID: 42, wantCode: http.StatusBadRequest, wantMessage: pkg.InvalidInput},
+		{name: "unsupported provider", body: strings.Replace(validBody, `"chatgpt"`, `"unknown"`, 1), userID: 42, wantCode: http.StatusBadRequest, wantMessage: pkg.InvalidInput},
+		{name: "unsupported source", body: strings.Replace(validBody, `"english"`, `"german"`, 1), userID: 42, wantCode: http.StatusBadRequest, wantMessage: pkg.InvalidInput},
+		{name: "invalid assessment", body: strings.Replace(validBody, `"LIKE"`, `"neutral"`, 1), userID: 42, wantCode: http.StatusBadRequest, wantMessage: pkg.InvalidInput},
+		{name: "text over configured byte limit", body: strings.Replace(validBody, `"hello"`, `"ééé"`, 1), userID: 42, wantCode: http.StatusBadRequest, wantMessage: pkg.InvalidInput},
+		{name: "missing authenticated installation", body: validBody, wantCode: http.StatusInternalServerError, wantMessage: pkg.SmthWW},
+		{name: "handler without translation validation reports configuration failure", body: validBody, userID: 42, legacy: true, wantCode: http.StatusInternalServerError, wantMessage: pkg.SmthWW},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &analyticsServiceStub{translationErr: test.serviceErr}
+			var handler AnalyticsHandler
+			if test.legacy {
+				handler = NewAnalyticsHandler(service)
+			} else {
+				handler = NewAnalyticsHandlerWithValidation(service, analyticsCatalog(t), 5)
+			}
+			c, recorder := newAnalyticsContext(http.MethodPut, "/analytics/feedback/translation", test.body)
+			c.Set(pkg.UserId, test.userID)
+
+			err := handler.TranslationFeedback(c)
+			if test.wantCode == http.StatusNoContent {
+				if err != nil {
+					t.Fatalf("TranslationFeedback() error = %v", err)
+				}
+				if recorder.Code != test.wantCode {
+					t.Fatalf("status = %d; want %d", recorder.Code, test.wantCode)
+				}
+			} else {
+				requireAnalyticsHTTPError(t, err, test.wantCode, test.wantMessage)
+			}
+			if service.feedback != nil || service.leadEmail != "" {
+				t.Fatal("translation feedback reached an unrelated persistence method")
+			}
+			if !equalTranslationFeedback(service.translationFeedback, test.wantFeedback) {
+				t.Fatalf("service translation feedback = %#v; want %#v", service.translationFeedback, test.wantFeedback)
+			}
+		})
+	}
+}
+
+// TestAnalyticsConstructors verifies the documented dependency and limit
+// preconditions for handler and service construction.
+func TestAnalyticsConstructors(t *testing.T) {
+	service := new(analyticsServiceStub)
+	tests := []struct {
+		name string
+		call func()
+	}{
+		{name: "nil handler service", call: func() { NewAnalyticsHandler(nil) }},
+		{name: "nil validated handler service", call: func() { NewAnalyticsHandlerWithValidation(nil, analyticsCatalog(t), 5) }},
+		{name: "nil language catalog", call: func() { NewAnalyticsHandlerWithValidation(service, nil, 5) }},
+		{name: "non-positive text limit", call: func() { NewAnalyticsHandlerWithValidation(service, analyticsCatalog(t), 0) }},
+		{name: "nil service database", call: func() { NewAnalyticsService(nil) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if !analyticsPanics(test.call) {
+				t.Fatal("constructor did not panic")
+			}
+		})
+	}
+}
+
+func analyticsCatalog(t *testing.T) *languages.Catalog {
+	t.Helper()
+	catalog, err := languages.NewCatalog(map[languages.Provider]languages.Capabilities{
+		languages.ProviderChatGPT: {Source: []string{"English"}, Target: []string{"Spanish"}, AutoDetect: true},
+	})
+	if err != nil {
+		t.Fatalf("create analytics catalog: %v", err)
+	}
+	return catalog
+}
+
+func analyticsPanics(fn func()) (didPanic bool) {
+	defer func() { didPanic = recover() != nil }()
+	fn()
+	return false
+}
+
 func equalRating(got, want *rating) bool {
+	if got == nil || want == nil {
+		return got == want
+	}
+	return *got == *want
+}
+
+func equalTranslationFeedback(got, want *validation.TranslationFeedback) bool {
 	if got == nil || want == nil {
 		return got == want
 	}

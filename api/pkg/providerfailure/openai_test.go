@@ -9,8 +9,8 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-// TestPanicIfOpenAIQuotaExceeded verifies that permanent quota failures alert
-// immediately while temporary rate limits remain eligible for SDK retries.
+// Permanent quota failures should alert immediately, while temporary rate
+// limits remain eligible for the caller's retry policy.
 func TestPanicIfOpenAIQuotaExceeded(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -35,6 +35,9 @@ func TestPanicIfOpenAIQuotaExceeded(t *testing.T) {
 			name: "network failure",
 			err:  fmt.Errorf("connection reset"),
 		},
+		{
+			name: "nil error",
+		},
 	}
 
 	for _, test := range tests {
@@ -52,8 +55,42 @@ func TestPanicIfOpenAIQuotaExceeded(t *testing.T) {
 	}
 }
 
-// TestPanicOpenAISanitizesProviderError ensures Telegram alerts identify the
-// actionable provider code without copying arbitrary upstream response text.
+// TestOpenAIFailurePreconditions verifies invalid operation names, missing
+// terminal errors, and missing response states are rejected before reporting.
+func TestOpenAIFailurePreconditions(t *testing.T) {
+	tests := []struct {
+		name string
+		call func()
+	}{
+		{name: "blank quota operation", call: func() { PanicIfOpenAIQuotaExceeded(" ", nil) }},
+		{name: "blank terminal operation", call: func() { PanicOpenAI(" ", errors.New("failure")) }},
+		{name: "nil terminal error", call: func() { PanicOpenAI("translation", nil) }},
+		{name: "blank response operation", call: func() { PanicOpenAIResponse(" ", "failed", "code") }},
+		{name: "blank response state", call: func() { PanicOpenAIResponse("translation", " ", "code") }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if capturePanic(test.call) == nil {
+				t.Fatal("failure reporter did not panic")
+			}
+		})
+	}
+}
+
+// TestPanicOpenAIResponse reports only the supplied state and a normalized
+// provider code, defaulting an omitted code to unknown.
+func TestPanicOpenAIResponse(t *testing.T) {
+	panicValue := capturePanic(func() { PanicOpenAIResponse("translation", "response failed", "  ") })
+	message := fmt.Sprint(panicValue)
+	for _, fragment := range []string{"translation", "response failed", "code unknown"} {
+		if !strings.Contains(message, fragment) {
+			t.Errorf("panic = %q; want fragment %q", message, fragment)
+		}
+	}
+}
+
+// Alerts need the actionable provider code but must not copy arbitrary
+// upstream response text.
 func TestPanicOpenAISanitizesProviderError(t *testing.T) {
 	panicValue := capturePanic(func() {
 		PanicOpenAI("text analysis", &openai.Error{

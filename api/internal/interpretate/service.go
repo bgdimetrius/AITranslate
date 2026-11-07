@@ -8,6 +8,7 @@ import (
 
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/providerfailure"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/bytedance/sonic"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
@@ -35,12 +36,15 @@ func assert(cond bool, msg string) {
 	}
 }
 
-// Interpretate retries provider and decoding failures until it obtains a
-// response matching the structured interpretation contract.
+// Interpretate gives provider and decoding failures one bounded retry budget.
+// A terminal failure panics so request recovery can alert operators; context
+// cancellation and deadline errors are returned to the caller.
 func (ints *interpservice) Interpretate(ctx context.Context, log *zap.Logger, intr *interpReq) (interpretation, pkg.Usage, error) {
-	assert(ctx != nil, "")
-	assert(log != nil, "")
-	assert(intr != nil, "")
+	validation.MustNotNil("context", ctx)
+	validation.MustNotNil("logger", log)
+	validation.MustNotNil("interpretation request", intr)
+	validation.MustPositiveInt("user ID", intr.UserId)
+	validation.MustNotBlank("target language", intr.TargetLang)
 	assert(func() bool {
 		ok, err := ints.db.ValidateUserId(ctx, int64(intr.UserId))
 		if err != nil {
@@ -49,7 +53,9 @@ func (ints *interpservice) Interpretate(ctx context.Context, log *zap.Logger, in
 		}
 		return ok
 	}(), "")
-	assert(len(strings.Fields(intr.Text)) > 0 && len(strings.Fields(intr.Text)) <= maxWords, "")
+	if _, err := validation.ValidateInterpretationText(intr.Text); err != nil {
+		panic(err)
+	}
 
 	var res interpretation
 	var usage pkg.Usage
@@ -106,12 +112,15 @@ func (ints *interpservice) Interpretate(ctx context.Context, log *zap.Logger, in
 	return res, usage, err
 }
 
-// AnalyzeText accepts only an exact, case-insensitive true or false model
-// response; other output is treated as a retriable contract violation.
+// AnalyzeText accepts only an exact, case-insensitive true or false response.
+// Provider and contract failures share a bounded retry budget and panic when
+// exhausted; context cancellation and deadline errors are returned.
 func (ints *interpservice) AnalyzeText(ctx context.Context, log *zap.Logger, text string) (bool, pkg.Usage, error) {
-	assert(ctx != nil, "")
-	assert(log != nil, "")
-	assert(len(strings.Fields(text)) > 0 && len(strings.Fields(text)) <= maxWords, "")
+	validation.MustNotNil("context", ctx)
+	validation.MustNotNil("logger", log)
+	if _, err := validation.ValidateInterpretationText(text); err != nil {
+		panic(err)
+	}
 
 	var err error
 	var usage pkg.Usage

@@ -36,7 +36,8 @@ type routeFixture struct {
 	refreshCookie *http.Cookie
 }
 
-// TestAuthRoutes verifies atomic credential rotation, immediate access revocation, refresh replay rejection, and documented failures through real JWT, HTTP, and PostgreSQL components.
+// TestAuthRoutes verifies atomic rotation, immediate access revocation, replay
+// rejection, and documented failures through real JWT, HTTP, and PostgreSQL components.
 func TestAuthRoutes(t *testing.T) {
 	t.Run("rotates a session with an expired access token", func(t *testing.T) {
 		fixture := newRouteFixture(t)

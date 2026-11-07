@@ -2,9 +2,9 @@ package analytics
 
 import (
 	"context"
-	"net/mail"
 
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"go.uber.org/zap"
 )
 
@@ -14,11 +14,13 @@ func assert(cond bool, msg string) {
 	}
 }
 
-// SaveApplicationFeedback persists feedback for an active installation. It
-// panics when called with data that has not passed the handler's validation.
+// SaveApplicationFeedback persists validated feedback for an active
+// installation. It panics if its preconditions fail or the installation cannot
+// be validated; persistence errors are returned.
 func (as *analyticsservice) SaveApplicationFeedback(ctx context.Context, log *zap.Logger, userId int, r rating) error {
-	assert(ctx != nil, "")
-	assert(log != nil, "")
+	validation.MustNotNil("context", ctx)
+	validation.MustNotNil("logger", log)
+	validation.MustPositiveInt("user ID", userId)
 	assert(func() bool {
 		ok, err := as.db.ValidateUserId(ctx, int64(userId))
 		if err != nil {
@@ -27,8 +29,9 @@ func (as *analyticsservice) SaveApplicationFeedback(ctx context.Context, log *za
 		}
 		return ok
 	}(), "")
-	assert(r.Rating == -1 || r.Rating == 1, "")
-	assert(len(r.Text) <= 128, "")
+	if _, err := validation.ValidateApplicationFeedback(r.Rating, r.Text); err != nil {
+		panic(err)
+	}
 
 	err := as.db.SaveApplicationFeedback(ctx, queries.SaveApplicationFeedbackParams{
 		InstallationID: int64(userId),
@@ -44,10 +47,12 @@ func (as *analyticsservice) SaveApplicationFeedback(ctx context.Context, log *za
 }
 
 // SaveFeedbackLead persists a syntactically valid plain email address for an
-// active installation. It panics if its caller violates those preconditions.
+// active installation. It panics if its preconditions fail or the installation
+// cannot be validated; persistence errors are returned.
 func (as *analyticsservice) SaveFeedbackLead(ctx context.Context, log *zap.Logger, userId int, email string) error {
-	assert(ctx != nil, "")
-	assert(log != nil, "")
+	validation.MustNotNil("context", ctx)
+	validation.MustNotNil("logger", log)
+	validation.MustPositiveInt("user ID", userId)
 	assert(func() bool {
 		ok, err := as.db.ValidateUserId(ctx, int64(userId))
 		if err != nil {
@@ -56,14 +61,49 @@ func (as *analyticsservice) SaveFeedbackLead(ctx context.Context, log *zap.Logge
 		}
 		return ok
 	}(), "")
+	validatedEmail, err := validation.ValidateEmail(email)
+	if err != nil {
+		panic(err)
+	}
+
+	err = as.db.SaveFeedbackLead(ctx, queries.SaveFeedbackLeadParams{
+		InstallationID: int64(userId),
+		Email:          validatedEmail,
+	})
+	if err != nil {
+		log.Error("db query returned error", zap.Error(err))
+		return err
+	}
+
+	return nil
+}
+
+// SaveTranslationFeedback persists already validated translation feedback for
+// an active installation. It panics if its preconditions fail or the
+// installation cannot be validated; persistence errors are returned.
+func (as *analyticsservice) SaveTranslationFeedback(ctx context.Context, log *zap.Logger, userID int, feedback validation.TranslationFeedback) error {
+	validation.MustNotNil("context", ctx)
+	validation.MustNotNil("logger", log)
+	validation.MustPositiveInt("user ID", userID)
 	assert(func() bool {
-		address, err := mail.ParseAddress(email)
-		return err == nil && address.Address == email
+		ok, err := as.db.ValidateUserId(ctx, int64(userID))
+		if err != nil {
+			log.Error("db query returned error", zap.Error(err))
+			return false
+		}
+		return ok
 	}(), "")
 
-	err := as.db.SaveFeedbackLead(ctx, queries.SaveFeedbackLeadParams{
-		InstallationID: int64(userId),
-		Email:          email,
+	err := as.db.SaveTranslationFeedback(ctx, queries.SaveTranslationFeedbackParams{
+		InstallationID:  int64(userID),
+		TranslationID:   feedback.TranslationID,
+		Revision:        feedback.Revision,
+		Provider:        string(feedback.Languages.Provider),
+		SourceLang:      feedback.Languages.Source,
+		TargetLang:      feedback.Languages.Target,
+		SourceText:      feedback.SourceText,
+		TranslationText: feedback.TranslationText,
+		Assessment:      feedback.Assessment,
 	})
 	if err != nil {
 		log.Error("db query returned error", zap.Error(err))

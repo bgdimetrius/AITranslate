@@ -32,7 +32,8 @@ type usersRouteFixture struct {
 	conn *pgx.Conn
 }
 
-// TestUserRoutes verifies installation provisioning, persisted refresh credentials, and database failure handling through real HTTP and PostgreSQL components.
+// TestUserRoutes verifies installation provisioning, persisted session state,
+// and database failures through real HTTP and PostgreSQL components.
 func TestUserRoutes(t *testing.T) {
 	t.Run("creates an installation with its initial session", func(t *testing.T) {
 		fixture := newUsersRouteFixture(t)

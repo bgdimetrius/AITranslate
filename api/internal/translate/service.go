@@ -10,6 +10,7 @@ import (
 
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/providerfailure"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/bytedance/sonic"
 	"github.com/cluttrdev/deepl-go/deepl"
 	"github.com/openai/openai-go/v3"
@@ -18,29 +19,32 @@ import (
 	"moul.io/mdcodec"
 )
 
-func assert(cond bool, msg string) {
-	if !cond {
-		panic(msg)
+func (tr *translationReq) check() {
+	validation.MustPositiveInt("allowed translation text length", tr.allowedLength)
+	validation.MustNotBlank("target language", tr.TargetLang)
+	if tr.withSource {
+		validation.MustNotBlank("source language", tr.SourceLang)
+	}
+	if tr.Text == "" || len(tr.Text) > tr.allowedLength {
+		panic(validation.ErrInvalidText)
 	}
 }
 
-func (tr *translationReq) check() {
-	assert(tr.Text != "", "text is empty")
-	assert(len(tr.Text) <= tr.allowedLength, "text is too big")
-}
-
 func checkDo(ctx context.Context, w io.Writer, tr *translationReq) {
-	assert(ctx != nil, "ctx is nil")
-	assert(w != nil, "w is nil")
-	assert(tr != nil, "tr is nil")
+	validation.MustNotNil("context", ctx)
+	validation.MustNotNil("response writer", w)
+	validation.MustNotNil("translation request", tr)
 	tr.check()
 }
 
-// Do streams OpenAI text deltas directly to w. If the stream fails, w may
-// already contain partial output and the returned usage may be incomplete.
+// Do streams OpenAI text deltas directly to w. Writer errors may be returned
+// after partial output; terminal provider or stream-contract failures panic so
+// request recovery can alert operators. Usage is complete only after the
+// provider emits its completion event.
 func (gt *gptTranslator) Do(ctx context.Context, log *zap.Logger, w io.Writer, tr *translationReq) (pkg.Usage, error) {
-	log.Debug("gptTranslator.Do", zap.Any("ctx", ctx == nil), zap.Any("w", w), zap.Any("tr", tr))
 	checkDo(ctx, w, tr)
+	validation.MustNotNil("logger", log)
+	log.Debug("gptTranslator.Do", zap.Any("ctx", ctx == nil), zap.Any("w", w), zap.Any("tr", tr))
 	var usage pkg.Usage
 
 	md, err := mdcodec.Marshal(tr)
@@ -132,8 +136,8 @@ func waitForDeepLRetry(ctx context.Context, attempt int) error {
 }
 
 func deepLUsageAllows(usage *deepl.Usage, characters int) bool {
-	// A zero character limit is used by account types without a character
-	// allowance, so only positive limits participate in exhaustion checks.
+	// A non-positive limit cannot establish exhaustion, so only positive limits
+	// participate in the preflight check.
 	return usage.CharacterLimit <= 0 || usage.CharacterCount+characters <= usage.CharacterLimit
 }
 
@@ -147,8 +151,9 @@ func isDeepLQuotaError(err error) bool {
 // Other provider failures retain a bounded retry budget and become a panic
 // only when no account can produce a translation.
 func (dt *deeplTranslator) Do(ctx context.Context, log *zap.Logger, w io.Writer, tr *translationReq) (pkg.Usage, error) {
-	log.Debug("deeplTranslator.Do", zap.Any("ctx", ctx == nil), zap.Any("w", w), zap.Any("tr", tr))
 	checkDo(ctx, w, tr)
+	validation.MustNotNil("logger", log)
+	log.Debug("deeplTranslator.Do", zap.Any("ctx", ctx == nil), zap.Any("w", w), zap.Any("tr", tr))
 	var usage pkg.Usage
 	const maxAttempt = 5
 	characters := len([]rune(tr.Text))

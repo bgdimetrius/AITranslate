@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bgdimetrius/AITranslate/pkg"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
@@ -31,13 +32,16 @@ type TelegramSender interface {
 // SetTelegramAlertTarget stores the bot and destination chat on the request
 // context so Middleware can alert without relying on package-global state.
 func SetTelegramAlertTarget(c *echo.Context, bot TelegramSender, chatID int64) {
+	validation.MustNotNil("Telegram bot", bot)
+	validation.MustNonZeroInt64("Telegram chat ID", chatID)
 	c.Set(telegramBotContextKey, bot)
 	c.Set(telegramChatIDContextKey, chatID)
 }
 
 // Middleware recovers panics raised by handlers and middleware in the current
 // request goroutine. It logs the full stack, attempts one Telegram alert, and
-// returns a generic 500 response without exposing internal details to clients.
+// returns a generic 500 without exposing internal details when the response has
+// not already been committed.
 // The alert includes a stable incident fingerprint, request ID, HTTP method,
 // registered route path, and response state; it excludes the query string and
 // points operators to the application logs for the full stack trace.

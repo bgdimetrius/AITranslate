@@ -4,45 +4,29 @@ package interpretate
 
 import (
 	"net/http"
-	"strings"
 
-	"github.com/bgdimetrius/AITranslate/internal/languages"
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/helper"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/bytedance/sonic"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
 )
 
-const maxWords = 21
-
-func validateInputText(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		log := helper.GetLogger(c)
-		text := c.QueryParam("text")
-		if text == "" {
-			log.Debug("text query param is empty")
-			var textr textReq
-			err := sonic.ConfigDefault.NewDecoder(c.Request().Body).Decode(&textr)
-			if err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput)
-			}
-			text = textr.Text
+func extractText(c *echo.Context) (string, error) {
+	text := c.QueryParam("text")
+	if text == "" {
+		var request textReq
+		if err := sonic.ConfigDefault.NewDecoder(c.Request().Body).Decode(&request); err != nil {
+			return "", err
 		}
-
-		words := len(strings.Fields(text))
-		if words == 0 || words > maxWords {
-			log.Warn("text param is too big", zap.String("text", text))
-			return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput)
-		}
-
-		c.Set("text", text)
-		return next(c)
+		text = request.Text
 	}
+	return validation.ValidateInterpretationText(text)
 }
 
-// Interpretate returns structured meanings for middleware-validated text and
-// records provider usage on a best-effort basis.
+// Interpretate returns structured meanings for validated text and records
+// provider usage on a best-effort basis.
 // @Summary Interpret short text
 // @Description Authenticates the installation and validates target_lang before invoking the model. Text may contain 1-21 whitespace-delimited words.
 // @Description A non-empty text query parameter takes precedence; otherwise text is decoded from the optional JSON body.
@@ -69,12 +53,21 @@ func validateInputText(next echo.HandlerFunc) echo.HandlerFunc {
 // @Router /interpretate [get]
 func (inth *interphandler) Interpretate(c *echo.Context) error {
 	log := helper.GetLogger(c)
-	inr := new(interpReq)
-	// Route middleware establishes these typed context values before the
-	// handler runs. Direct calls must preserve the same invariant.
-	inr.Text = c.Get("text").(string)
-	inr.UserId = c.Get("user_id").(int)
-	inr.TargetLang = c.Get("target_lang").(string)
+	text, err := extractText(c)
+	if err != nil {
+		log.Warn("interpretation text is invalid", zap.Error(err))
+		return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput).Wrap(err)
+	}
+	target, err := inth.validator.ValidateTarget(validation.ProviderChatGPT, c.QueryParam("target_lang"))
+	if err != nil {
+		log.Warn("interpretation target language is invalid", zap.Error(err))
+		return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput).Wrap(err)
+	}
+	userID, ok := c.Get(pkg.UserId).(int)
+	if !ok || userID <= 0 {
+		return echo.NewHTTPError(http.StatusInternalServerError, pkg.SmthWW)
+	}
+	inr := &interpReq{Text: text, UserId: userID, TargetLang: target}
 
 	interp, usage, err := inth.service.Interpretate(c.Request().Context(), log, inr)
 	usage.InputCharacters = int64(len([]rune(inr.Text)))
@@ -122,10 +115,17 @@ func (inth *interphandler) Interpretate(c *echo.Context) error {
 // @Router /interpretate/analyze [post]
 func (inth *interphandler) AnalyzeText(c *echo.Context) error {
 	log := helper.GetLogger(c)
-	text := c.Get("text").(string)
-	userId := c.Get("user_id").(int)
+	text, err := extractText(c)
+	if err != nil {
+		log.Warn("analysis text is invalid", zap.Error(err))
+		return echo.NewHTTPError(http.StatusBadRequest, pkg.InvalidInput).Wrap(err)
+	}
+	userId, ok := c.Get(pkg.UserId).(int)
+	if !ok || userId <= 0 {
+		return echo.NewHTTPError(http.StatusInternalServerError, pkg.SmthWW)
+	}
 
-	ok, usage, err := inth.service.AnalyzeText(c.Request().Context(), log, text)
+	suitable, usage, err := inth.service.AnalyzeText(c.Request().Context(), log, text)
 	usage.InputCharacters = int64(len([]rune(text)))
 
 	defer helper.RecordDailyUsage(c.Request().Context(), log, inth.db, userId, &usage)
@@ -139,7 +139,7 @@ func (inth *interphandler) AnalyzeText(c *echo.Context) error {
 	}
 	usage.InterpretationRequests = 1
 
-	if !ok {
+	if !suitable {
 		return c.NoContent(http.StatusNotAcceptable)
 	}
 
@@ -147,12 +147,8 @@ func (inth *interphandler) AnalyzeText(c *echo.Context) error {
 }
 
 // RegisterRoutes installs the authenticated interpretation and analysis
-// endpoints with their language and text validation middleware.
+// endpoints.
 func (inth *interphandler) RegisterRoutes(g *echo.Group, authenticate echo.MiddlewareFunc) {
-	g.GET("/interpretate", inth.Interpretate,
-		authenticate,
-		languages.UseProvider(languages.ProviderChatGPT),
-		inth.languages.ValidateTargetLang, validateInputText,
-	)
-	g.POST("/interpretate/analyze", inth.AnalyzeText, authenticate, validateInputText)
+	g.GET("/interpretate", inth.Interpretate, authenticate)
+	g.POST("/interpretate/analyze", inth.AnalyzeText, authenticate)
 }

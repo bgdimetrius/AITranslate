@@ -57,7 +57,8 @@ func (db *usersDBStub) SaveSession(_ context.Context, params queries.SaveSession
 	return db.saveErr
 }
 
-// TestUserHandlerNewUser covers persisted installation creation, initial session issuance, and documented creation or session failures.
+// TestUserHandlerNewUser covers installation persistence, initial session
+// issuance, and documented creation or session failures.
 func TestUserHandlerNewUser(t *testing.T) {
 	tests := []struct {
 		name           string

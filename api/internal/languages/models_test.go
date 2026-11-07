@@ -12,7 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// TestNewCatalog covers validation, provider spelling normalization, deterministic snapshots, and ownership of input data.
+// TestNewCatalog covers adapter validation, normalized capabilities, detached
+// snapshots, and ownership of caller input.
 func TestNewCatalog(t *testing.T) {
 	t.Run("copies and normalizes configured capabilities", func(t *testing.T) {
 		input := map[Provider]Capabilities{
@@ -68,7 +69,8 @@ func TestNewCatalog(t *testing.T) {
 	}
 }
 
-// TestCatalogResolution covers case-insensitive client input, configured spelling, unknown values, and auto-detection support.
+// TestCatalogResolution covers case-insensitive resolution, configured
+// spelling, unknown values, and automatic source detection.
 func TestCatalogResolution(t *testing.T) {
 	catalog := mustCatalog(t, map[Provider]Capabilities{
 		ProviderChatGPT: {Source: []string{"English"}, Target: []string{"French"}, AutoDetect: true},
@@ -95,7 +97,8 @@ func TestCatalogResolution(t *testing.T) {
 	}
 }
 
-// TestValidateSourceLang covers provider selection, normalization, automatic detection, and invalid middleware input.
+// TestValidateSourceLang covers provider selection, normalization, automatic
+// detection, and invalid middleware input.
 func TestValidateSourceLang(t *testing.T) {
 	catalog := mustCatalog(t, map[Provider]Capabilities{
 		ProviderChatGPT: {Source: []string{"English"}, Target: []string{"French"}, AutoDetect: true},
@@ -147,7 +150,8 @@ func TestValidateSourceLang(t *testing.T) {
 	}
 }
 
-// TestValidateTargetLang covers provider selection, configured spelling, and invalid or omitted target input.
+// TestValidateTargetLang covers provider selection, normalization, and invalid
+// or omitted target input.
 func TestValidateTargetLang(t *testing.T) {
 	catalog := mustCatalog(t, map[Provider]Capabilities{
 		ProviderChatGPT: {Source: []string{"English"}, Target: []string{"French"}, AutoDetect: true},

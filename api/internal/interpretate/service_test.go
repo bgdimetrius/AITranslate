@@ -31,8 +31,8 @@ func (interpretationServiceDBStub) RecordDailyUsage(context.Context, queries.Rec
 	return nil
 }
 
-// TestInterpretationServicePanicsOnOpenAIQuotaExhaustion ensures both OpenAI
-// operations reach panic recovery as soon as the provider reports a hard limit.
+// Both OpenAI operations must reach panic recovery as soon as the provider
+// reports a hard quota limit.
 func TestInterpretationServicePanicsOnOpenAIQuotaExhaustion(t *testing.T) {
 	httpClient := &http.Client{Transport: interpretationRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{

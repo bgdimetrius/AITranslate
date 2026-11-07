@@ -41,8 +41,8 @@ func (s *deepLClientStub) TranslateText(_ []string, _ string, _ ...deepl.Transla
 	return s.translations, s.translateErr
 }
 
-// TestDeepLTranslatorSkipsExhaustedAccounts proves that one depleted key does
-// not deny a translation when another configured key can fit the full input.
+// One depleted account must not deny service while another configured account
+// can fit the complete request.
 func TestDeepLTranslatorSkipsExhaustedAccounts(t *testing.T) {
 	exhausted := &deepLClientStub{usage: &deepl.Usage{CharacterCount: 99, CharacterLimit: 100}}
 	available := &deepLClientStub{
@@ -68,8 +68,8 @@ func TestDeepLTranslatorSkipsExhaustedAccounts(t *testing.T) {
 	}
 }
 
-// TestDeepLTranslatorPanicsOnlyWhenEveryAccountIsExhausted protects the
-// multi-key contract that a single exhausted account is never enough to alert.
+// Quota exhaustion is an operator incident only when every configured account
+// is unable to fit the request.
 func TestDeepLTranslatorPanicsOnlyWhenEveryAccountIsExhausted(t *testing.T) {
 	first := &deepLClientStub{usage: &deepl.Usage{CharacterCount: 100, CharacterLimit: 100}}
 	second := &deepLClientStub{usage: &deepl.Usage{CharacterCount: 199, CharacterLimit: 200}}
@@ -88,8 +88,8 @@ func TestDeepLTranslatorPanicsOnlyWhenEveryAccountIsExhausted(t *testing.T) {
 	}
 }
 
-// TestDeepLTranslatorFallsThroughAfterRacingQuotaChange verifies that a quota
-// response received after preflight still falls through to the next key.
+// Provider-side quota rejection is authoritative because usage may change
+// between the preflight check and the translation request.
 func TestDeepLTranslatorFallsThroughAfterRacingQuotaChange(t *testing.T) {
 	first := &deepLClientStub{
 		usage:        &deepl.Usage{CharacterCount: 0, CharacterLimit: 100},
@@ -116,8 +116,8 @@ func TestDeepLTranslatorFallsThroughAfterRacingQuotaChange(t *testing.T) {
 	}
 }
 
-// TestGPTTranslatorPanicsOnQuotaExhaustion verifies that the authoritative
-// OpenAI quota response reaches panic recovery instead of becoming a silent 500.
+// Hard quota failures must reach panic recovery so operators receive an alert
+// instead of an unexplained 500.
 func TestGPTTranslatorPanicsOnQuotaExhaustion(t *testing.T) {
 	httpClient := &http.Client{Transport: translationRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -145,8 +145,8 @@ func TestGPTTranslatorPanicsOnQuotaExhaustion(t *testing.T) {
 	}
 }
 
-// TestGPTTranslatorPanicsOnFailedStream ensures an HTTP 200 stream that ends
-// in a provider failure is still alerted and never mistaken for a translation.
+// An HTTP 200 stream can still terminate in a provider failure; that terminal
+// event must never be mistaken for a completed translation.
 func TestGPTTranslatorPanicsOnFailedStream(t *testing.T) {
 	httpClient := &http.Client{Transport: translationRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		body := "event: response.failed\n" +

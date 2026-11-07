@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/openai/openai-go/v3"
 )
 
@@ -18,11 +19,14 @@ var openAIQuotaCodes = map[string]struct{}{
 	"usage_limit_exceeded":              {},
 }
 
-// PanicIfOpenAIQuotaExceeded turns a non-retriable billing or usage limit into
-// an operator-visible incident. OpenAI does not expose a supported preflight
-// balance check to ordinary project API keys, so the failed request is the
-// authoritative quota check.
+// PanicIfOpenAIQuotaExceeded turns a recognized billing or usage-limit error
+// into an operator-visible incident. Other errors are left to the caller's
+// retry policy.
 func PanicIfOpenAIQuotaExceeded(operation string, err error) {
+	operation = validation.MustNotBlank("operation", operation)
+	if err == nil {
+		return
+	}
 	apiErr, ok := asOpenAIError(err)
 	if !ok || !isOpenAIQuotaError(apiErr) {
 		return
@@ -34,6 +38,8 @@ func PanicIfOpenAIQuotaExceeded(operation string, err error) {
 // PanicOpenAI reports a terminal OpenAI failure without placing provider
 // response text, request content, or credentials in logs and Telegram alerts.
 func PanicOpenAI(operation string, err error) {
+	operation = validation.MustNotBlank("operation", operation)
+	validation.MustNotNil("OpenAI error", err)
 	if apiErr, ok := asOpenAIError(err); ok {
 		reason := "request failed"
 		if isOpenAIQuotaError(apiErr) {
@@ -45,9 +51,12 @@ func PanicOpenAI(operation string, err error) {
 	panic(fmt.Errorf("%s: OpenAI request failed after retries", operation))
 }
 
-// PanicOpenAIResponse reports a terminal streaming state using provider codes
-// that are safe to expose, while intentionally excluding free-form messages.
+// PanicOpenAIResponse reports a terminal streaming state using only the state
+// and code supplied by the caller; it intentionally accepts no free-form
+// provider message.
 func PanicOpenAIResponse(operation string, state string, code string) {
+	operation = validation.MustNotBlank("operation", operation)
+	state = validation.MustNotBlank("OpenAI response state", state)
 	code = strings.TrimSpace(code)
 	if code == "" {
 		code = "unknown"

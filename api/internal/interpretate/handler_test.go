@@ -6,11 +6,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
+	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
 )
@@ -51,14 +54,17 @@ func (db *interpretationDBStub) RecordDailyUsage(_ context.Context, params queri
 func newInterpretationContext(method, target, text, targetLang string) (*echo.Context, *httptest.ResponseRecorder) {
 	e := echo.New()
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(method, target, nil)
+	values := url.Values{}
+	if text != "" {
+		values.Set("text", text)
+	}
+	if targetLang != "" {
+		values.Set("target_lang", targetLang)
+	}
+	request := httptest.NewRequest(method, target+"?"+values.Encode(), nil)
 	c := e.NewContext(request, recorder)
 	c.Set("logger", zap.NewNop())
 	c.Set("user_id", 42)
-	c.Set("text", text)
-	if targetLang != "" {
-		c.Set("target_lang", targetLang)
-	}
 	return c, recorder
 }
 
@@ -76,7 +82,8 @@ func requireHTTPError(t *testing.T, err error, code int, message string) {
 	}
 }
 
-// TestInterpretationHandlerInterpretate covers successful JSON responses and documented provider failure statuses.
+// TestInterpretationHandlerInterpretate covers successful responses, normalized
+// public request input, usage accounting, and provider failure statuses.
 func TestInterpretationHandlerInterpretate(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -101,7 +108,7 @@ func TestInterpretationHandlerInterpretate(t *testing.T) {
 				err:            test.serviceErr,
 			}
 			db := new(interpretationDBStub)
-			handler := &interphandler{service: service, db: db}
+			handler := &interphandler{service: service, db: db, validator: interpretationCatalog(t)}
 			c, recorder := newInterpretationContext(http.MethodGet, "/interpretate", "héllo", "Spanish")
 
 			err := handler.Interpretate(c)
@@ -148,7 +155,8 @@ func TestInterpretationHandlerInterpretate(t *testing.T) {
 	}
 }
 
-// TestInterpretationHandlerAnalyzeText covers suitable, unsuitable, failed, and timed-out analysis outcomes.
+// TestInterpretationHandlerAnalyzeText covers suitable, unsuitable, failed,
+// and timed-out analysis outcomes.
 func TestInterpretationHandlerAnalyzeText(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -171,7 +179,7 @@ func TestInterpretationHandlerAnalyzeText(t *testing.T) {
 				err:      test.serviceErr,
 			}
 			db := new(interpretationDBStub)
-			handler := &interphandler{service: service, db: db}
+			handler := &interphandler{service: service, db: db, validator: interpretationCatalog(t)}
 			c, recorder := newInterpretationContext(http.MethodPost, "/interpretate/analyze", "break the ice", "")
 
 			err := handler.AnalyzeText(c)
@@ -207,4 +215,58 @@ func TestInterpretationHandlerAnalyzeText(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInterpretationHandlersValidateInput verifies malformed transport input
+// is rejected before provider invocation or usage persistence.
+func TestInterpretationHandlersValidateInput(t *testing.T) {
+	tests := []struct {
+		name       string
+		text       string
+		targetLang string
+		userID     any
+	}{
+		{name: "missing text", targetLang: "Spanish", userID: 42},
+		{name: "too many words", text: strings.Repeat("word ", validation.MaxInterpretationWords+1), targetLang: "Spanish", userID: 42},
+		{name: "missing target", text: "hello", userID: 42},
+		{name: "unsupported target", text: "hello", targetLang: "German", userID: 42},
+		{name: "missing authenticated user", text: "hello", targetLang: "Spanish"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := new(interpretationServiceStub)
+			db := new(interpretationDBStub)
+			handler := &interphandler{service: service, db: db, validator: interpretationCatalog(t)}
+			c, _ := newInterpretationContext(http.MethodGet, "/interpretate", test.text, test.targetLang)
+			c.Set(pkg.UserId, test.userID)
+
+			err := handler.Interpretate(c)
+			wantCode := http.StatusBadRequest
+			wantMessage := pkg.InvalidInput
+			if test.name == "missing authenticated user" {
+				wantCode = http.StatusInternalServerError
+				wantMessage = pkg.SmthWW
+			}
+			requireHTTPError(t, err, wantCode, wantMessage)
+			if service.request != nil || len(db.records) != 0 {
+				t.Fatal("invalid input reached the interpretation service or usage store")
+			}
+		})
+	}
+}
+
+func interpretationCatalog(t *testing.T) *validation.Catalog {
+	t.Helper()
+	catalog, err := validation.NewCatalog(map[validation.Provider]validation.Capabilities{
+		validation.ProviderChatGPT: {
+			Source:     []string{"English"},
+			Target:     []string{"Spanish"},
+			AutoDetect: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create test catalog: %v", err)
+	}
+	return catalog
 }

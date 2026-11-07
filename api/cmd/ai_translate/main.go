@@ -181,7 +181,11 @@ func main() {
 	gptTranslator := translate.NewGptTranslator(gpt, model, cfg.Prompts.Translate)
 	deeplTranslator := translate.NewDeepLTranslator(translators)
 
-	analyticsHandler := analytics.NewAnalyticsHandler(analyticsService)
+	analyticsHandler := analytics.NewAnalyticsHandlerWithValidation(
+		analyticsService,
+		languageCatalog,
+		cfg.Limits.TranslationCharacters,
+	)
 	interetationHandler := interpretate.NewInterpretationHandler(interetationService, queries, languageCatalog)
 	authHandler := auth.NewAuthHandler(queries)
 	translationHandler := translate.NewTranslationHandler(gptTranslator, deeplTranslator, cfg.Limits.TranslationCharacters, queries, languageCatalog)
@@ -298,7 +302,6 @@ func main() {
 	// registered separately before /swagger/doc.json becomes available.
 	api.GET("/swagger/*", echo.WrapHandler(httpSwagger.WrapHandler))
 
-	// Shut down gracefully on Ctrl+C or the SIGTERM the orchestrator sends.
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -160,6 +161,14 @@ func checkRelations(t *testing.T) bool {
 // }
 
 func init() {
+	for _, name := range []string{"host_db", "port_db", "user_db", "password_db", "dbname_db", "sslmode_db"} {
+		if strings.TrimSpace(os.Getenv(name)) == "" {
+			// The legacy database fixtures are opt-in and no active test requires
+			// an external database during the default repository test run.
+			return
+		}
+	}
+
 	var err error
 	psqlconn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		os.Getenv("host_db"), os.Getenv("port_db"), os.Getenv("user_db"),
