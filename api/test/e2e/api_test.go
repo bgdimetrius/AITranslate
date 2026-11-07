@@ -35,7 +35,10 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const apiPath = "/api/v1"
+const (
+	apiPath               = "/api/v1"
+	translationFeedbackID = "8bdf29a7-54d2-48ee-bd2b-c0ae79af6831"
+)
 
 type languageCapabilities struct {
 	Source     []string `json:"source"`
@@ -156,7 +159,7 @@ func TestAPIEndToEnd(t *testing.T) {
 	t.Run("accepts authenticated translation feedback", func(t *testing.T) {
 		client := newAPIClient(t)
 		createInstallation(t, client, baseURL)
-		body := `{"translator":"chatgpt","source_lang":"english","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"like"}`
+		body := `{"translation_id":"` + translationFeedbackID + `","revision":1,"translator":"chatgpt","source_lang":"english","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"like"}`
 
 		response := doRequest(t, client, http.MethodPut, baseURL+apiPath+"/analytics/feedback/translation", "application/json", body)
 		defer response.Body.Close()
@@ -169,7 +172,7 @@ func TestAPIEndToEnd(t *testing.T) {
 	t.Run("rejects invalid translation feedback", func(t *testing.T) {
 		client := newAPIClient(t)
 		createInstallation(t, client, baseURL)
-		body := `{"translator":"chatgpt","source_lang":"english","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"neutral"}`
+		body := `{"translation_id":"` + translationFeedbackID + `","revision":1,"translator":"chatgpt","source_lang":"english","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"neutral"}`
 
 		response := doRequest(t, client, http.MethodPut, baseURL+apiPath+"/analytics/feedback/translation", "application/json", body)
 		defer response.Body.Close()
@@ -180,7 +183,7 @@ func TestAPIEndToEnd(t *testing.T) {
 
 	t.Run("rejects translation feedback without authentication", func(t *testing.T) {
 		client := newAPIClient(t)
-		body := `{"translator":"chatgpt","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"like"}`
+		body := `{"translation_id":"` + translationFeedbackID + `","revision":1,"translator":"chatgpt","source_lang":"english","target_lang":"spanish","source_text":"hello","translation_text":"hola","assessment":"like"}`
 
 		response := doRequest(t, client, http.MethodPut, baseURL+apiPath+"/analytics/feedback/translation", "application/json", body)
 		defer response.Body.Close()
@@ -270,6 +273,7 @@ func startPostgres(t *testing.T, moduleRoot string) string {
 		postgres.WithOrderedInitScripts(
 			filepath.Join(migrations, "000001_initial_schema.up.sql"),
 			filepath.Join(migrations, "000002_add_access_token_id.up.sql"),
+			filepath.Join(migrations, "000003_add_translation_feedback.up.sql"),
 		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
