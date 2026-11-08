@@ -106,6 +106,11 @@ func TestAPIEndToEnd(t *testing.T) {
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	process := startAPI(t, moduleRoot, databaseURL, proxyURL, certificateFile, port)
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("API process output:\n%s", process.output.String())
+		}
+	})
 	waitForAPI(t, process, baseURL+apiPath+"/languages")
 
 	t.Run("reports API readiness", func(t *testing.T) {
@@ -274,6 +279,7 @@ func startPostgres(t *testing.T, moduleRoot string) string {
 			filepath.Join(migrations, "000001_initial_schema.up.sql"),
 			filepath.Join(migrations, "000002_add_access_token_id.up.sql"),
 			filepath.Join(migrations, "000003_add_translation_feedback.up.sql"),
+			filepath.Join(migrations, "000004_make_feedback_leads_unique.up.sql"),
 		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
