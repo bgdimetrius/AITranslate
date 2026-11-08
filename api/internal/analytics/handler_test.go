@@ -266,7 +266,7 @@ func TestAnalyticsConstructors(t *testing.T) {
 		{name: "nil validated handler service", call: func() { NewAnalyticsHandlerWithValidation(nil, analyticsCatalog(t), 5) }},
 		{name: "nil language catalog", call: func() { NewAnalyticsHandlerWithValidation(service, nil, 5) }},
 		{name: "non-positive text limit", call: func() { NewAnalyticsHandlerWithValidation(service, analyticsCatalog(t), 0) }},
-		{name: "nil service database", call: func() { NewAnalyticsService(nil) }},
+		{name: "nil service database", call: func() { NewAnalyticsService(nil, 0, nil) }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

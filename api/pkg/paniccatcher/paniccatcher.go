@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bgdimetrius/AITranslate/pkg"
+	"github.com/bgdimetrius/AITranslate/pkg/tgbot"
 	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/labstack/echo/v5"
@@ -24,14 +25,9 @@ const (
 	maxPanicMessageRunes     = 800
 )
 
-// TelegramSender is the Telegram operation required to deliver a panic alert.
-type TelegramSender interface {
-	Send(tgbotapi.Chattable) (tgbotapi.Message, error)
-}
-
 // SetTelegramAlertTarget stores the bot and destination chat on the request
 // context so Middleware can alert without relying on package-global state.
-func SetTelegramAlertTarget(c *echo.Context, bot TelegramSender, chatID int64) {
+func SetTelegramAlertTarget(c *echo.Context, bot tgbot.TelegramSender, chatID int64) {
 	validation.MustNotNil("Telegram bot", bot)
 	validation.MustNonZeroInt64("Telegram chat ID", chatID)
 	c.Set(telegramBotContextKey, bot)
@@ -127,7 +123,7 @@ func sendTelegramAlert(c *echo.Context, panicErr error, method string, path stri
 		}
 	}()
 
-	bot, ok := c.Get(telegramBotContextKey).(TelegramSender)
+	bot, ok := c.Get(telegramBotContextKey).(tgbot.TelegramSender)
 	if !ok || bot == nil {
 		return fmt.Errorf("telegram bot is missing from request context")
 	}

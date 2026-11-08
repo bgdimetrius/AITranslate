@@ -1,17 +1,33 @@
 -- name: SaveApplicationFeedback :exec
-INSERT INTO application_feedback (installation_id, rating, text)
+INSERT INTO application_feedback (
+    installation_id,
+    rating,
+    text
+)
 VALUES (
     sqlc.arg(installation_id),
     sqlc.arg(rating),
     sqlc.arg(feedback_text)
-);
+)
+ON CONFLICT (installation_id) DO UPDATE
+SET
+    rating = EXCLUDED.rating,
+    text   = EXCLUDED.text
+WHERE
+    application_feedback.rating IS DISTINCT FROM EXCLUDED.rating
+    OR application_feedback.text IS DISTINCT FROM EXCLUDED.text;
 
--- name: SaveFeedbackLead :exec
-INSERT INTO feedback_leads (installation_id, email)
-VALUES (
-    sqlc.arg(installation_id),
-    sqlc.arg(email)
-);
+-- name: SaveFeedbackLead :one
+WITH inserted AS (
+    INSERT INTO feedback_leads (installation_id, email)
+    VALUES (
+        sqlc.arg(installation_id),
+        sqlc.arg(email)
+    )
+    ON CONFLICT (installation_id, email) DO NOTHING
+    RETURNING TRUE AS created
+)
+SELECT EXISTS (SELECT 1 FROM inserted) AS created;
 
 -- name: SaveTranslationFeedback :exec
 INSERT INTO translation_feedback (

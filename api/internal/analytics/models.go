@@ -5,6 +5,7 @@ import (
 
 	"github.com/bgdimetrius/AITranslate/internal/languages"
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
+	"github.com/bgdimetrius/AITranslate/pkg/tgbot"
 	"github.com/bgdimetrius/AITranslate/pkg/validation"
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
@@ -30,7 +31,9 @@ type AnalyticsService interface {
 type DbHandler interface {
 	ValidateUserId(ctx context.Context, userID int64) (bool, error)
 	SaveApplicationFeedback(ctx context.Context, params queries.SaveApplicationFeedbackParams) error
-	SaveFeedbackLead(ctx context.Context, params queries.SaveFeedbackLeadParams) error
+	// SaveFeedbackLead reports whether the lead was inserted. Existing leads are
+	// successful no-ops so callers can avoid sending duplicate notifications.
+	SaveFeedbackLead(ctx context.Context, params queries.SaveFeedbackLeadParams) (bool, error)
 	SaveTranslationFeedback(ctx context.Context, params queries.SaveTranslationFeedbackParams) error
 }
 
@@ -41,7 +44,9 @@ type analyticshandler struct {
 }
 
 type analyticsservice struct {
-	db DbHandler
+	chatId int64
+	bot    tgbot.TelegramSender
+	db     DbHandler
 }
 
 // NewAnalyticsHandler configures the application-feedback and lead routes. Use
@@ -66,9 +71,12 @@ func NewAnalyticsHandlerWithValidation(service AnalyticsService, catalog *langua
 }
 
 // NewAnalyticsService panics if db is nil.
-func NewAnalyticsService(db DbHandler) AnalyticsService {
+func NewAnalyticsService(db DbHandler, chatId int64, bot tgbot.TelegramSender) AnalyticsService {
 	validation.MustNotNil("analytics database", db)
-	return &analyticsservice{db: db}
+	return &analyticsservice{
+		db:     db,
+		chatId: chatId,
+	}
 }
 
 type rating struct {

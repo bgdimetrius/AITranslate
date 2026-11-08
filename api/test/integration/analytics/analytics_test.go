@@ -17,6 +17,7 @@ import (
 	"github.com/bgdimetrius/AITranslate/internal/languages"
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v5"
 	"github.com/testcontainers/testcontainers-go"
@@ -33,6 +34,16 @@ type routeFixture struct {
 	conn         *pgx.Conn
 	userID       int64
 	accessCookie *http.Cookie
+	telegram     *integrationTelegramSender
+}
+
+type integrationTelegramSender struct {
+	messages []tgbotapi.Chattable
+}
+
+func (sender *integrationTelegramSender) Send(message tgbotapi.Chattable) (tgbotapi.Message, error) {
+	sender.messages = append(sender.messages, message)
+	return tgbotapi.Message{}, nil
 }
 
 // TestAnalyticsRoutes verifies authenticated feedback validation and
@@ -61,19 +72,25 @@ func TestAnalyticsRoutes(t *testing.T) {
 		}
 	})
 
-	t.Run("trims and persists a plain email", func(t *testing.T) {
+	t.Run("persists a normalized lead once and notifies only for the insertion", func(t *testing.T) {
 		fixture := newRouteFixture(t)
-		response := fixture.request(http.MethodPut, "/analytics/feedback/order", `{"email":"  reader@example.com  "}`, true)
-		if response.Code != http.StatusNoContent {
-			t.Fatalf("status = %d, body = %s; want %d", response.Code, response.Body.String(), http.StatusNoContent)
+		for _, body := range []string{`{"email":"  reader@example.com  "}`, `{"email":"reader@example.com"}`} {
+			response := fixture.request(http.MethodPut, "/analytics/feedback/order", body, true)
+			if response.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, body = %s; want %d", response.Code, response.Body.String(), http.StatusNoContent)
+			}
 		}
 
+		fixture.requireRowCount(t, "feedback_leads", 1)
 		var email string
 		if err := fixture.conn.QueryRow(context.Background(), "SELECT email FROM feedback_leads WHERE installation_id = $1", fixture.userID).Scan(&email); err != nil {
 			t.Fatalf("read stored lead: %v", err)
 		}
 		if email != "reader@example.com" {
 			t.Fatalf("stored email = %q; want %q", email, "reader@example.com")
+		}
+		if len(fixture.telegram.messages) != 1 {
+			t.Fatalf("Telegram messages = %d; want 1", len(fixture.telegram.messages))
 		}
 	})
 
@@ -169,7 +186,8 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	t.Helper()
 	conn := startPostgres(t)
 	db := queries.New(conn)
-	service := analytics.NewAnalyticsService(db)
+	telegram := &integrationTelegramSender{}
+	service := analytics.NewAnalyticsService(db, -1001234567890, telegram)
 	catalog, err := languages.NewCatalog(map[languages.Provider]languages.Capabilities{
 		languages.ProviderChatGPT: {
 			Source:     []string{"English"},
@@ -198,7 +216,7 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	auth.Init(integrationJWTSecret, false)
 	accessCookie := startSession(t, e, db, userID)
 
-	return &routeFixture{echo: e, conn: conn, userID: userID, accessCookie: accessCookie}
+	return &routeFixture{echo: e, conn: conn, userID: userID, accessCookie: accessCookie, telegram: telegram}
 }
 
 func startPostgres(t *testing.T) *pgx.Conn {
@@ -218,6 +236,7 @@ func startPostgres(t *testing.T) *pgx.Conn {
 			filepath.Join(migrations, "000001_initial_schema.up.sql"),
 			filepath.Join(migrations, "000002_add_access_token_id.up.sql"),
 			filepath.Join(migrations, "000003_add_translation_feedback.up.sql"),
+			filepath.Join(migrations, "000004_make_feedback_leads_unique.up.sql"),
 		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").

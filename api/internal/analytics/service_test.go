@@ -7,15 +7,19 @@ import (
 
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
 	"github.com/bgdimetrius/AITranslate/pkg/validation"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
+
+const testAnalyticsChatID int64 = -1001234567890
 
 type analyticsDBStub struct {
 	valid           bool
 	validateErr     error
 	feedbackErr     error
 	leadErr         error
+	leadCreated     bool
 	translationErr  error
 	feedbackRows    []queries.SaveApplicationFeedbackParams
 	leadRows        []queries.SaveFeedbackLeadParams
@@ -31,9 +35,9 @@ func (db *analyticsDBStub) SaveApplicationFeedback(_ context.Context, params que
 	return db.feedbackErr
 }
 
-func (db *analyticsDBStub) SaveFeedbackLead(_ context.Context, params queries.SaveFeedbackLeadParams) error {
+func (db *analyticsDBStub) SaveFeedbackLead(_ context.Context, params queries.SaveFeedbackLeadParams) (bool, error) {
 	db.leadRows = append(db.leadRows, params)
-	return db.leadErr
+	return db.leadCreated, db.leadErr
 }
 
 func (db *analyticsDBStub) SaveTranslationFeedback(_ context.Context, params queries.SaveTranslationFeedbackParams) error {
@@ -41,11 +45,25 @@ func (db *analyticsDBStub) SaveTranslationFeedback(_ context.Context, params que
 	return db.translationErr
 }
 
+type analyticsTelegramSender struct {
+	messages []tgbotapi.Chattable
+	sendErr  error
+}
+
+func (sender *analyticsTelegramSender) Send(message tgbotapi.Chattable) (tgbotapi.Message, error) {
+	sender.messages = append(sender.messages, message)
+	return tgbotapi.Message{}, sender.sendErr
+}
+
+func newTestAnalyticsService(db DbHandler) AnalyticsService {
+	return NewAnalyticsService(db, testAnalyticsChatID, &analyticsTelegramSender{})
+}
+
 // TestAnalyticsServicePersistsValidatedValues verifies feedback and normalized
 // email values are associated with the authenticated installation.
 func TestAnalyticsServicePersistsValidatedValues(t *testing.T) {
 	db := &analyticsDBStub{valid: true}
-	service := NewAnalyticsService(db)
+	service := newTestAnalyticsService(db)
 
 	if err := service.SaveApplicationFeedback(context.Background(), zap.NewNop(), 42, rating{Rating: -1, Text: "not useful"}); err != nil {
 		t.Fatalf("SaveApplicationFeedback() error = %v", err)
@@ -95,7 +113,7 @@ func TestAnalyticsServiceReturnsPersistenceErrors(t *testing.T) {
 	leadErr := errors.New("lead unavailable")
 	translationErr := errors.New("translation feedback unavailable")
 	db := &analyticsDBStub{valid: true, feedbackErr: feedbackErr, leadErr: leadErr, translationErr: translationErr}
-	service := NewAnalyticsService(db)
+	service := newTestAnalyticsService(db)
 
 	if err := service.SaveApplicationFeedback(context.Background(), zap.NewNop(), 42, rating{Rating: 1}); !errors.Is(err, feedbackErr) {
 		t.Fatalf("SaveApplicationFeedback() error = %v; want %v", err, feedbackErr)
@@ -108,6 +126,51 @@ func TestAnalyticsServiceReturnsPersistenceErrors(t *testing.T) {
 	}
 }
 
+// TestSaveFeedbackLeadNotifications verifies newly inserted leads notify once,
+// duplicate leads do not notify, and delivery failures satisfy the panic contract.
+func TestSaveFeedbackLeadNotifications(t *testing.T) {
+	t.Run("new lead sends one notification", func(t *testing.T) {
+		db := &analyticsDBStub{valid: true, leadCreated: true}
+		sender := &analyticsTelegramSender{}
+		service := NewAnalyticsService(db, testAnalyticsChatID, sender)
+
+		if err := service.SaveFeedbackLead(context.Background(), zap.NewNop(), 42, "reader@example.com"); err != nil {
+			t.Fatalf("SaveFeedbackLead() error = %v", err)
+		}
+		if len(sender.messages) != 1 {
+			t.Fatalf("Telegram messages = %d; want 1", len(sender.messages))
+		}
+	})
+
+	t.Run("duplicate lead is a successful no-op", func(t *testing.T) {
+		db := &analyticsDBStub{valid: true}
+		sender := &analyticsTelegramSender{}
+		service := NewAnalyticsService(db, testAnalyticsChatID, sender)
+
+		if err := service.SaveFeedbackLead(context.Background(), zap.NewNop(), 42, "reader@example.com"); err != nil {
+			t.Fatalf("SaveFeedbackLead() error = %v", err)
+		}
+		if len(sender.messages) != 0 {
+			t.Fatalf("Telegram messages = %d; want 0", len(sender.messages))
+		}
+	})
+
+	t.Run("delivery failure panics", func(t *testing.T) {
+		db := &analyticsDBStub{valid: true, leadCreated: true}
+		sender := &analyticsTelegramSender{sendErr: errors.New("telegram unavailable")}
+		service := NewAnalyticsService(db, testAnalyticsChatID, sender)
+
+		if !analyticsPanics(func() {
+			_ = service.SaveFeedbackLead(context.Background(), zap.NewNop(), 42, "reader@example.com")
+		}) {
+			t.Fatal("SaveFeedbackLead() did not panic")
+		}
+		if len(sender.messages) != 1 {
+			t.Fatalf("Telegram delivery attempts = %d; want 1", len(sender.messages))
+		}
+	})
+}
+
 // TestAnalyticsServicePreconditions covers required dependencies, active users,
 // and the validated feedback and email contract.
 func TestAnalyticsServicePreconditions(t *testing.T) {
@@ -116,31 +179,31 @@ func TestAnalyticsServicePreconditions(t *testing.T) {
 		call func()
 	}{
 		{name: "nil feedback context", call: func() {
-			NewAnalyticsService(&analyticsDBStub{valid: true}).SaveApplicationFeedback(nil, zap.NewNop(), 42, rating{Rating: 1})
+			newTestAnalyticsService(&analyticsDBStub{valid: true}).SaveApplicationFeedback(nil, zap.NewNop(), 42, rating{Rating: 1})
 		}},
 		{name: "nil feedback logger", call: func() {
-			NewAnalyticsService(&analyticsDBStub{valid: true}).SaveApplicationFeedback(context.Background(), nil, 42, rating{Rating: 1})
+			newTestAnalyticsService(&analyticsDBStub{valid: true}).SaveApplicationFeedback(context.Background(), nil, 42, rating{Rating: 1})
 		}},
 		{name: "invalid feedback user", call: func() {
-			NewAnalyticsService(&analyticsDBStub{valid: true}).SaveApplicationFeedback(context.Background(), zap.NewNop(), 0, rating{Rating: 1})
+			newTestAnalyticsService(&analyticsDBStub{valid: true}).SaveApplicationFeedback(context.Background(), zap.NewNop(), 0, rating{Rating: 1})
 		}},
 		{name: "unknown feedback user", call: func() {
-			NewAnalyticsService(&analyticsDBStub{}).SaveApplicationFeedback(context.Background(), zap.NewNop(), 42, rating{Rating: 1})
+			newTestAnalyticsService(&analyticsDBStub{}).SaveApplicationFeedback(context.Background(), zap.NewNop(), 42, rating{Rating: 1})
 		}},
 		{name: "feedback user validation failure", call: func() {
-			NewAnalyticsService(&analyticsDBStub{validateErr: errors.New("database unavailable")}).SaveApplicationFeedback(context.Background(), zap.NewNop(), 42, rating{Rating: 1})
+			newTestAnalyticsService(&analyticsDBStub{validateErr: errors.New("database unavailable")}).SaveApplicationFeedback(context.Background(), zap.NewNop(), 42, rating{Rating: 1})
 		}},
 		{name: "invalid rating", call: func() {
-			NewAnalyticsService(&analyticsDBStub{valid: true}).SaveApplicationFeedback(context.Background(), zap.NewNop(), 42, rating{})
+			newTestAnalyticsService(&analyticsDBStub{valid: true}).SaveApplicationFeedback(context.Background(), zap.NewNop(), 42, rating{})
 		}},
 		{name: "invalid lead email", call: func() {
-			NewAnalyticsService(&analyticsDBStub{valid: true}).SaveFeedbackLead(context.Background(), zap.NewNop(), 42, "not-an-email")
+			newTestAnalyticsService(&analyticsDBStub{valid: true}).SaveFeedbackLead(context.Background(), zap.NewNop(), 42, "not-an-email")
 		}},
 		{name: "invalid translation feedback user", call: func() {
-			NewAnalyticsService(&analyticsDBStub{valid: true}).SaveTranslationFeedback(context.Background(), zap.NewNop(), 0, validTranslationFeedback())
+			newTestAnalyticsService(&analyticsDBStub{valid: true}).SaveTranslationFeedback(context.Background(), zap.NewNop(), 0, validTranslationFeedback())
 		}},
 		{name: "unknown translation feedback user", call: func() {
-			NewAnalyticsService(&analyticsDBStub{}).SaveTranslationFeedback(context.Background(), zap.NewNop(), 42, validTranslationFeedback())
+			newTestAnalyticsService(&analyticsDBStub{}).SaveTranslationFeedback(context.Background(), zap.NewNop(), 42, validTranslationFeedback())
 		}},
 	}
 

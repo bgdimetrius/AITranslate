@@ -2,9 +2,12 @@ package analytics
 
 import (
 	"context"
+	"fmt"
+	"html"
 
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
 	"github.com/bgdimetrius/AITranslate/pkg/validation"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"go.uber.org/zap"
 )
 
@@ -46,9 +49,21 @@ func (as *analyticsservice) SaveApplicationFeedback(ctx context.Context, log *za
 	return nil
 }
 
+func formatFeedbackLeadNotification(userID int, email string) string {
+	return fmt.Sprintf(
+		"📬 <b>New feedback lead</b>\n\n"+
+			"<b>Email:</b> <code>%s</code>\n"+
+			"<b>Installation:</b> <code>%d</code>",
+		html.EscapeString(email),
+		userID,
+	)
+}
+
 // SaveFeedbackLead persists a syntactically valid plain email address for an
-// active installation. It panics if its preconditions fail or the installation
-// cannot be validated; persistence errors are returned.
+// active installation. A newly inserted lead triggers one Telegram notification;
+// submitting the same lead again is a successful no-op. It panics if its
+// preconditions fail, the installation cannot be validated, or Telegram delivery
+// fails; persistence errors are returned.
 func (as *analyticsservice) SaveFeedbackLead(ctx context.Context, log *zap.Logger, userId int, email string) error {
 	validation.MustNotNil("context", ctx)
 	validation.MustNotNil("logger", log)
@@ -66,13 +81,24 @@ func (as *analyticsservice) SaveFeedbackLead(ctx context.Context, log *zap.Logge
 		panic(err)
 	}
 
-	err = as.db.SaveFeedbackLead(ctx, queries.SaveFeedbackLeadParams{
+	ok, err := as.db.SaveFeedbackLead(ctx, queries.SaveFeedbackLeadParams{
 		InstallationID: int64(userId),
 		Email:          validatedEmail,
 	})
 	if err != nil {
 		log.Error("db query returned error", zap.Error(err))
 		return err
+	}
+
+	if ok {
+		message := tgbotapi.NewMessage(as.chatId, formatFeedbackLeadNotification(userId, validatedEmail))
+		message.ParseMode = tgbotapi.ModeHTML
+		message.DisableWebPagePreview = true
+		_, err = as.bot.Send(message)
+		if err != nil {
+			log.Error("telegram returned error", zap.Error(err))
+			panic(err)
+		}
 	}
 
 	return nil

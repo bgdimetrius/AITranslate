@@ -12,12 +12,23 @@ import (
 )
 
 const saveApplicationFeedback = `-- name: SaveApplicationFeedback :exec
-INSERT INTO application_feedback (installation_id, rating, text)
+INSERT INTO application_feedback (
+    installation_id,
+    rating,
+    text
+)
 VALUES (
     $1,
     $2,
     $3
 )
+ON CONFLICT (installation_id) DO UPDATE
+SET
+    rating = EXCLUDED.rating,
+    text   = EXCLUDED.text
+WHERE
+    application_feedback.rating IS DISTINCT FROM EXCLUDED.rating
+    OR application_feedback.text IS DISTINCT FROM EXCLUDED.text
 `
 
 type SaveApplicationFeedbackParams struct {
@@ -31,12 +42,17 @@ func (q *Queries) SaveApplicationFeedback(ctx context.Context, arg SaveApplicati
 	return err
 }
 
-const saveFeedbackLead = `-- name: SaveFeedbackLead :exec
-INSERT INTO feedback_leads (installation_id, email)
-VALUES (
-    $1,
-    $2
+const saveFeedbackLead = `-- name: SaveFeedbackLead :one
+WITH inserted AS (
+    INSERT INTO feedback_leads (installation_id, email)
+    VALUES (
+        $1,
+        $2
+    )
+    ON CONFLICT (installation_id, email) DO NOTHING
+    RETURNING TRUE AS created
 )
+SELECT EXISTS (SELECT 1 FROM inserted) AS created
 `
 
 type SaveFeedbackLeadParams struct {
@@ -44,9 +60,11 @@ type SaveFeedbackLeadParams struct {
 	Email          string
 }
 
-func (q *Queries) SaveFeedbackLead(ctx context.Context, arg SaveFeedbackLeadParams) error {
-	_, err := q.db.Exec(ctx, saveFeedbackLead, arg.InstallationID, arg.Email)
-	return err
+func (q *Queries) SaveFeedbackLead(ctx context.Context, arg SaveFeedbackLeadParams) (bool, error) {
+	row := q.db.QueryRow(ctx, saveFeedbackLead, arg.InstallationID, arg.Email)
+	var created bool
+	err := row.Scan(&created)
+	return created, err
 }
 
 const saveTranslationFeedback = `-- name: SaveTranslationFeedback :exec

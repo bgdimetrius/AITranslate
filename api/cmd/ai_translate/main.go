@@ -176,7 +176,7 @@ func main() {
 	}
 
 	model := shared.ChatModel(cfg.OpenAI.Model)
-	analyticsService := analytics.NewAnalyticsService(queries)
+	analyticsService := analytics.NewAnalyticsService(queries, cfg.Telegram.ChatID, telegramBot)
 	interetationService := interpretate.NewInterpretationService(queries, model, gpt, cfg.Prompts.Interpret, cfg.Prompts.Analyze)
 	gptTranslator := translate.NewGptTranslator(gpt, model, cfg.Prompts.Translate)
 	deeplTranslator := translate.NewDeepLTranslator(translators)
