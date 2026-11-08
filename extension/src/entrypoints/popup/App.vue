@@ -4,9 +4,7 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
-  shallowRef,
   watch,
-  type Component,
 } from "vue";
 import CopyButton from "@/components/CopyButton.vue";
 import DefaultSwitcher from "@/components/DefaultSwitcher.vue";
@@ -20,10 +18,7 @@ import SaveSettingsButton from "@/components/SaveSettingsButton.vue";
 import SettingsButton from "@/components/SettingsButton.vue";
 import TextArea from "@/components/TextArea.vue";
 import { useLanguages } from "@/composables/useLanguages";
-import {
-  useEngagementPrompts,
-  type EngagementPrompt as EngagementPromptName,
-} from "@/composables/useEngagementPrompts";
+import { useEngagementPrompts } from "@/composables/useEngagementPrompts";
 import { usePageTranslationSettings } from "@/composables/usePageTranslationSettings";
 import { useLanguagePreferences } from "@/composables/useLanguagePreferences";
 import { useTranslation } from "@/composables/useTranslation";
@@ -71,7 +66,6 @@ const {
   saving: engagementSaving,
   error: engagementError,
   initialize: initializeEngagementPrompts,
-  show: showEngagementPrompt,
   close: closeEngagementPrompt,
   goBack: goBackEngagementPrompt,
   submitRating: submitApplicationRating,
@@ -84,18 +78,6 @@ const feedbackSaving = ref(false);
 const feedbackError = ref("");
 const settingsOpen = ref(false);
 const settingsSaved = ref(false);
-const debugPanelVisible = ref(true);
-const debugPanelComponent = shallowRef<Component | null>(null);
-
-if (import.meta.env.DEV) {
-  void import("@/components/EngagementDebugPanel.vue")
-    .then((module) => {
-      debugPanelComponent.value = module.default;
-    })
-    .catch((error) => {
-      console.error("Failed to load engagement debug controls", error);
-    });
-}
 
 const settingsLanguages = computed(() => {
   return languages.value.chatgpt?.target ?? [];
@@ -275,13 +257,6 @@ async function saveSettings() {
   }, 2000);
 }
 
-function triggerDebugPrompt(
-  prompt: Extract<EngagementPromptName, "rating" | "email">,
-) {
-  debugPanelVisible.value = false;
-  showEngagementPrompt(prompt);
-}
-
 onMounted(() => {
   void hydratePageTranslationSettings();
   void initializeEngagementPrompts();
@@ -459,10 +434,5 @@ onBeforeUnmount(() => {
       />
     </main>
 
-    <component
-      :is="debugPanelComponent"
-      v-if="debugPanelComponent && debugPanelVisible"
-      @trigger="triggerDebugPrompt"
-    />
   </div>
 </template>

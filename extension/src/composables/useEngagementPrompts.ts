@@ -49,12 +49,6 @@ export function useEngagementPrompts() {
     }
   }
 
-  function show(prompt: "rating" | "email") {
-    selectedStars.value = 0;
-    error.value = "";
-    activePrompt.value = prompt;
-  }
-
   async function close() {
     const prompt = activePrompt.value;
     activePrompt.value = null;
@@ -141,7 +135,6 @@ export function useEngagementPrompts() {
     saving,
     error,
     initialize,
-    show,
     close,
     goBack,
     submitRating,
