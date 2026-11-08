@@ -14,6 +14,7 @@ defineEmits<{
     type="button"
     :disabled="disabled"
     :aria-label="label ?? 'Swap languages'"
+    :title="label ?? 'Swap languages'"
     class="flex items-center justify-center size-9 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
     @click="$emit('swap')"
   >

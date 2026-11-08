@@ -1,0 +1,207 @@
+name: Extension CD
+
+on:
+  workflow_run:
+    workflows: ["Extension CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-release
+  cancel-in-progress: false
+
+jobs:
+  publish-latest:
+    name: Publish latest committed extension
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+
+    steps:
+      - name: Check out tested commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        working-directory: extension
+        run: npm ci
+
+      - name: Build Chrome Web Store package
+        working-directory: extension
+        run: npm run package:chrome
+
+      - name: Prepare stable release asset
+        shell: bash
+        working-directory: extension
+        env:
+          RELEASES_DOMAIN: releases.ai-translate.bogdanantonovich.com
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(.output/*-chrome.zip)
+
+          if [ "${#archives[@]}" -ne 1 ]; then
+            echo "Expected exactly one Chrome package, found ${#archives[@]}." >&2
+            exit 1
+          fi
+
+          release_dir="release/$DEPLOY_SHA"
+          release_asset="$release_dir/ai-translate-extension.zip"
+          mkdir -p "$release_dir"
+          install -m 0644 "${archives[0]}" "$release_asset"
+          unzip -t "$release_asset"
+
+          extension_version="$(unzip -p "$release_asset" manifest.json | jq -er '.version')"
+          (
+            cd "$release_dir"
+            sha256sum ai-translate-extension.zip > ai-translate-extension.zip.sha256
+          )
+          asset_sha256="$(cut -d ' ' -f 1 "$release_asset.sha256")"
+          asset_size="$(stat -c '%s' "$release_asset")"
+
+          jq -n \
+            --arg version "$extension_version" \
+            --arg commit "$DEPLOY_SHA" \
+            --arg publishedAt "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --arg url "https://$RELEASES_DOMAIN/latest/ai-translate-extension.zip" \
+            --arg sha256 "$asset_sha256" \
+            --argjson size "$asset_size" \
+            '{
+              version: $version,
+              commit: $commit,
+              publishedAt: $publishedAt,
+              artifact: {url: $url, sha256: $sha256, size: $size}
+            }' > "$release_dir/latest.json"
+
+      - name: Validate deployment secrets
+        shell: bash
+        env:
+          EXTENSION_RELEASES_ACCESS_TOKEN: ${{ secrets.EXTENSION_RELEASES_ACCESS_TOKEN }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          for name in \
+            EXTENSION_RELEASES_ACCESS_TOKEN \
+            VPS_HOST \
+            VPS_USER \
+            VPS_SSH_KEY
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "Required secret $name is empty." >&2
+              exit 1
+            fi
+          done
+
+          if [[ ! "$EXTENSION_RELEASES_ACCESS_TOKEN" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; then
+            echo "EXTENSION_RELEASES_ACCESS_TOKEN must contain 32-128 URL-safe characters." >&2
+            exit 1
+          fi
+
+      - name: Sync release infrastructure to VPS
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: extension/infra/releases
+          target: ~/ai-translate-extension-releases-infra/
+          strip_components: 3
+          overwrite: true
+
+      - name: Copy latest extension to VPS staging
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: extension/release/${{ env.DEPLOY_SHA }}
+          target: ~/ai-translate-extension-releases/incoming/
+          strip_components: 2
+
+      - name: Publish latest extension atomically
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+          EXTENSION_RELEASES_ACCESS_TOKEN: ${{ secrets.EXTENSION_RELEASES_ACCESS_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_SHA,EXTENSION_RELEASES_ACCESS_TOKEN
+          script: |
+            set -eu
+            publisher=/usr/local/sbin/ai-translate-extension-release-publish
+            synced_publisher="$HOME/ai-translate-extension-releases-infra/scripts/ai-translate-extension-release-publish"
+
+            if [ ! -x "$publisher" ]; then
+              echo "The release infrastructure is synced, but the trusted publisher is not installed." >&2
+              echo "Run this once on the VPS, then rerun this job:" >&2
+              echo "  cd ~/ai-translate-extension-releases-infra" >&2
+              echo "  sudo CERTBOT_EMAIL=admin@bogdanantonovich.com DEPLOY_USER=\$(whoami) ./scripts/bootstrap-host.sh" >&2
+              exit 1
+            fi
+
+            if ! cmp --silent "$synced_publisher" "$publisher"; then
+              echo "The installed publisher is older than the repository copy." >&2
+              echo "Rerun ./scripts/bootstrap-host.sh with sudo, then rerun this job." >&2
+              exit 1
+            fi
+
+            printf '%s\n' "$EXTENSION_RELEASES_ACCESS_TOKEN" \
+              | sudo "$publisher" "$DEPLOY_SHA"
+
+      - name: Verify private download endpoint
+        shell: bash
+        env:
+          EXTENSION_RELEASES_ACCESS_TOKEN: ${{ secrets.EXTENSION_RELEASES_ACCESS_TOKEN }}
+          RELEASES_DOMAIN: releases.ai-translate.bogdanantonovich.com
+        run: |
+          set -euo pipefail
+
+          unauthenticated_status="$(curl \
+            --silent \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            "https://$RELEASES_DOMAIN/latest/ai-translate-extension.zip")"
+          if [ "$unauthenticated_status" != "404" ]; then
+            echo "Expected an unauthenticated 404, got $unauthenticated_status." >&2
+            exit 1
+          fi
+
+          published_commit="$(curl \
+            --fail \
+            --silent \
+            --show-error \
+            --header "Authorization: Bearer $EXTENSION_RELEASES_ACCESS_TOKEN" \
+            "https://$RELEASES_DOMAIN/latest.json" \
+            | jq -r '.commit')"
+          if [ "$published_commit" != "$DEPLOY_SHA" ]; then
+            echo "Expected published commit $DEPLOY_SHA, got $published_commit." >&2
+            exit 1
+          fi
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --header "Authorization: Bearer $EXTENSION_RELEASES_ACCESS_TOKEN" \
+            "https://$RELEASES_DOMAIN/latest/ai-translate-extension.zip"

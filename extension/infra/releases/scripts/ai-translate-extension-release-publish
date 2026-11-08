@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+domain="releases.ai-translate.bogdanantonovich.com"
+document_root="/srv/www/$domain"
+releases_root="$document_root/releases"
+auth_file="/etc/nginx/conf.d/ai-translate-releases-auth.conf"
+nginx_group="www-data"
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+if [ "$(id -u)" -ne 0 ]; then
+  fail "This publisher must run as root through sudo."
+fi
+
+IFS= read -r access_token || true
+if [[ ! "$access_token" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; then
+  fail "The access token must contain 32-128 URL-safe characters."
+fi
+
+configure_auth() {
+  local temporary_auth
+  temporary_auth="$(mktemp "${auth_file}.tmp.XXXXXX")"
+  trap 'rm -f "$temporary_auth"' RETURN
+
+  {
+    printf 'map $http_authorization $ai_translate_release_header_auth {\n'
+    printf '    default 0;\n'
+    printf '    "Bearer %s" 1;\n' "$access_token"
+    printf '}\n\n'
+    printf 'map $arg_token $ai_translate_release_query_auth {\n'
+    printf '    default 0;\n'
+    printf '    "%s" 1;\n' "$access_token"
+    printf '}\n\n'
+    printf 'map $cookie_ai_translate_release_token $ai_translate_release_cookie_auth {\n'
+    printf '    default 0;\n'
+    printf '    "%s" 1;\n' "$access_token"
+    printf '}\n\n'
+    printf 'map "$ai_translate_release_header_auth:$ai_translate_release_query_auth:$ai_translate_release_cookie_auth" $ai_translate_release_authorized {\n'
+    printf '    default 0;\n'
+    printf '    ~1 1;\n'
+    printf '}\n\n'
+    printf 'map $ai_translate_release_query_auth $ai_translate_release_cookie {\n'
+    printf '    default "";\n'
+    printf '    1 "ai_translate_release_token=$arg_token; Path=/; Max-Age=2592000; Secure; HttpOnly; SameSite=Strict";\n'
+    printf '}\n'
+  } > "$temporary_auth"
+
+  chown root:root "$temporary_auth"
+  chmod 0600 "$temporary_auth"
+  mv -f "$temporary_auth" "$auth_file"
+  trap - RETURN
+
+  nginx -t
+  systemctl reload nginx
+}
+
+if [ "${1:-}" = "--configure-token" ]; then
+  configure_auth
+  exit 0
+fi
+
+commit="${1:-}"
+if [[ ! "$commit" =~ ^[a-f0-9]{40}$ ]]; then
+  fail "Expected a full 40-character lowercase Git commit SHA."
+fi
+
+deploy_user="${SUDO_USER:-}"
+if [ -z "$deploy_user" ] || [ "$deploy_user" = "root" ]; then
+  fail "Run this command through sudo from the deployment account."
+fi
+
+deploy_home="$(getent passwd "$deploy_user" | cut -d: -f6)"
+if [ -z "$deploy_home" ]; then
+  fail "Unable to resolve the deployment user's home directory."
+fi
+
+staging_root="$deploy_home/ai-translate-extension-releases/incoming"
+staging_dir="$staging_root/$commit"
+target_dir="$releases_root/$commit"
+temporary_dir="$releases_root/.${commit}.tmp.$$"
+archive_name="ai-translate-extension.zip"
+required_files=(
+  "$archive_name"
+  "$archive_name.sha256"
+  "latest.json"
+)
+
+verify_release_directory() {
+  local release_dir="$1"
+  local description="$2"
+  local filename path expected_hash expected_name extra actual_hash
+
+  [ -d "$release_dir" ] || fail "$description directory does not exist: $release_dir"
+
+  for filename in "${required_files[@]}"; do
+    path="$release_dir/$filename"
+    [ -f "$path" ] || fail "$description is missing required file: $filename"
+    [ ! -L "$path" ] || fail "$description must not contain symbolic links."
+  done
+
+  read -r expected_hash expected_name extra < "$release_dir/$archive_name.sha256"
+  expected_name="${expected_name#\*}"
+  [[ "$expected_hash" =~ ^[a-f0-9]{64}$ ]] || fail "Invalid package checksum."
+  [ "$expected_name" = "$archive_name" ] || fail "Checksum filename mismatch."
+  [ -z "${extra:-}" ] || fail "Unexpected checksum content."
+
+  actual_hash="$(sha256sum "$release_dir/$archive_name" | cut -d ' ' -f 1)"
+  [ "$actual_hash" = "$expected_hash" ] || fail "Package checksum verification failed."
+  grep -Fq '"commit": "'"$commit"'"' "$release_dir/latest.json" \
+    || fail "$description metadata does not identify commit $commit."
+  grep -Fq '"sha256": "'"$expected_hash"'"' "$release_dir/latest.json" \
+    || fail "$description metadata checksum does not match the package."
+}
+
+verify_release_directory "$staging_dir" "Staged release"
+configure_auth
+
+if [ -e "$target_dir" ]; then
+  [ -d "$target_dir" ] || fail "Release target exists and is not a directory."
+  verify_release_directory "$target_dir" "Published release"
+  echo "Commit $commit is already published; retaining its verified package."
+else
+  trap 'rm -rf "$temporary_dir"' EXIT
+  install -d -o root -g "$nginx_group" -m 0750 "$temporary_dir"
+  for filename in "${required_files[@]}"; do
+    install -o root -g "$nginx_group" -m 0640 \
+      "$staging_dir/$filename" \
+      "$temporary_dir/$filename"
+  done
+  mv "$temporary_dir" "$target_dir"
+  trap - EXIT
+fi
+
+latest_link="$document_root/.latest.tmp.$$"
+ln -s "releases/$commit" "$latest_link"
+mv -Tf "$latest_link" "$document_root/latest"
+
+while IFS= read -r -d '' old_release; do
+  old_name="$(basename "$old_release")"
+  if [[ "$old_name" =~ ^[a-f0-9]{40}$ ]] && [ "$old_name" != "$commit" ]; then
+    echo "Removing superseded extension release $old_name."
+    rm -rf -- "$old_release"
+  fi
+done < <(find "$releases_root" -mindepth 1 -maxdepth 1 -type d -print0)
+
+while IFS= read -r -d '' staged_release; do
+  staged_name="$(basename "$staged_release")"
+  if [[ "$staged_name" =~ ^[a-f0-9]{40}$ ]]; then
+    rm -rf -- "$staged_release"
+  fi
+done < <(find "$staging_root" -mindepth 1 -maxdepth 1 -type d -print0)
+
+echo "Commit $commit is now the only published extension release."

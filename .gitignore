@@ -18,6 +18,7 @@ extension/pnpm-debug.log*
 extension/lerna-debug.log*
 extension/node_modules/
 extension/.output/
+extension/release/
 extension/stats.html
 extension/stats-*.json
 extension/.wxt/

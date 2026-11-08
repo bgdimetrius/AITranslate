@@ -4,7 +4,11 @@ import LanguageSelector from "./LanguageSelector.vue";
 import SwapButton from "./LanguageSwitcher.vue";
 import { useLanguagePreferences } from "@/composables/useLanguagePreferences";
 import { useLanguages } from "@/composables/useLanguages";
-import { pickPreferredTarget } from "@/utils/languages";
+import {
+  pickPreferredTarget,
+  resolveCompatibleSource,
+  resolveCompatibleTarget,
+} from "@/utils/languages";
 
 const { data, load } = useLanguages();
 const {
@@ -40,17 +44,25 @@ watch(
   { immediate: true },
 );
 
-const canSwap = computed(
-  () =>
-    source.value !== "auto" &&
-    targetOptions.value.includes(source.value) &&
-    sourceOptions.value.includes(target.value)
+const swappedLanguages = computed(() => {
+  if (source.value.toLowerCase() === "auto" || !caps.value) return null;
+
+  const newSource = resolveCompatibleSource(target.value, caps.value.source);
+  const newTarget = resolveCompatibleTarget(source.value, caps.value.target);
+  return newSource && newTarget ? { source: newSource, target: newTarget } : null;
+});
+
+const canSwap = computed(() => swappedLanguages.value !== null);
+const swapLabel = computed(() =>
+  canSwap.value
+    ? "Swap languages"
+    : "These source and target languages cannot be swapped",
 );
 
 function swap() {
-  if (!canSwap.value) return;
-  const s = source.value;
-  chooseBoth(target.value, s);
+  const languages = swappedLanguages.value;
+  if (!languages) return;
+  chooseBoth(languages.source, languages.target);
 }
 
 onMounted(() => {
@@ -67,7 +79,11 @@ onMounted(() => {
       label="Source language"
       @update:model-value="chooseSource"
     />
-    <SwapButton :disabled="!canSwap" @swap="swap" />
+    <SwapButton
+      :disabled="!canSwap"
+      :label="swapLabel"
+      @swap="swap"
+    />
     <LanguageSelector
       v-model="target"
       :options="targetOptions"

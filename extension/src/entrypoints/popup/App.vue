@@ -35,7 +35,7 @@ type Direction = "back" | "forward";
 type Rating = "like" | "dislike";
 
 const { data: languages } = useLanguages();
-const { source, target } = useLanguagePreferences();
+const { source, target, chooseSource } = useLanguagePreferences();
 const {
   output,
   loading: translationLoading,
@@ -106,6 +106,7 @@ let translationTimer: ReturnType<typeof setTimeout> | undefined;
 let savedTimer: ReturnType<typeof setTimeout> | undefined;
 let restoringHistory = false;
 let restoringTranslation = false;
+let applyingDetectedSource = false;
 
 watch(input, (value) => {
   if (restoringHistory) {
@@ -121,6 +122,11 @@ watch(input, (value) => {
 
 watch([input, source, target], ([text, sourceLanguage, targetLanguage]) => {
   clearTimeout(translationTimer);
+
+  if (applyingDetectedSource) {
+    applyingDetectedSource = false;
+    return;
+  }
 
   if (restoringTranslation) {
     restoringTranslation = false;
@@ -164,6 +170,11 @@ watch(detectedSourceLanguage, (value) => {
   const entry = currentHistoryEntry.value;
   if (!value || !entry || entry.translationId !== translationId.value) return;
   updateCurrentHistoryEntry({ detectedSourceLanguage: value });
+
+  if (source.value.toLowerCase() === "auto") {
+    applyingDetectedSource = true;
+    chooseSource(value);
+  }
 });
 
 watch(
@@ -315,14 +326,6 @@ onBeforeUnmount(() => {
             {{ translationError }}
           </p>
 
-          <p
-            v-else-if="translationLoading && !output"
-            class="px-4 pb-2 text-xs text-gray-500"
-            role="status"
-          >
-            Translating…
-          </p>
-
           <footer class="flex items-center px-4 py-3">
             <div class="flex gap-3">
               <MoveButton
@@ -342,14 +345,25 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="flex min-w-0 flex-1 flex-col bg-[#f8f9ff]">
-          <TextArea
-            v-model="output"
-            placeholder-text=""
-            :spellcheck="false"
-            :readonly="true"
-            aria-label="Translation"
-            class="min-h-0 text-gray-800"
-          />
+          <div class="relative flex min-h-0 flex-1">
+            <TextArea
+              v-model="output"
+              placeholder-text=""
+              :spellcheck="false"
+              :readonly="true"
+              aria-label="Translation"
+              class="min-h-0 w-full text-gray-800"
+            />
+
+            <p
+              v-if="translationLoading && !output"
+              class="pointer-events-none absolute left-0 top-0 p-5 text-base italic leading-[1.6] text-gray-400"
+              role="status"
+              aria-live="polite"
+            >
+              Translating…
+            </p>
+          </div>
 
           <p
             v-if="feedbackError"
