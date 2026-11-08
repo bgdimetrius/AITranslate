@@ -31,7 +31,7 @@ if [ -z "${CERTBOT_EMAIL:-}" ]; then
   fail "Set CERTBOT_EMAIL to the address Certbot should use for expiry notices."
 fi
 
-for command in certbot curl nginx openssl visudo; do
+for command in certbot curl grep nginx openssl visudo; do
   command -v "$command" >/dev/null || fail "Required command is not installed: $command"
 done
 
@@ -50,9 +50,29 @@ install -o root -g www-data -m 0640 "$release_root/html/index.html" "$document_r
 install -o root -g www-data -m 0640 "$release_root/html/download.js" "$document_root/download.js"
 install -o root -g root -m 0755 "$script_dir/ai-translate-extension-release-publish" "$publisher_path"
 install -o root -g root -m 0755 "$script_dir/certbot-deploy-hook.sh" "$certbot_hook_path"
-install -o root -g root -m 0644 \
-  "$release_root/nginx/00-ai-translate-releases-map-hash.conf" \
-  "$map_hash_config_path"
+
+# map_hash_bucket_size is valid only once in Nginx's http context. SinShield
+# installs the same shared setting on this VPS, so reuse it when present rather
+# than creating a duplicate global directive. On a standalone host, install the
+# extension release host's copy instead.
+shared_map_hash_config=""
+for nginx_config in /etc/nginx/conf.d/*.conf; do
+  [ -e "$nginx_config" ] || continue
+  [ "$nginx_config" = "$map_hash_config_path" ] && continue
+  if grep -Eq '^[[:space:]]*map_hash_bucket_size[[:space:]]+' "$nginx_config"; then
+    shared_map_hash_config="$nginx_config"
+    break
+  fi
+done
+
+if [ -n "$shared_map_hash_config" ]; then
+  rm -f "$map_hash_config_path"
+  echo "Reusing shared Nginx map hash configuration from $shared_map_hash_config."
+else
+  install -o root -g root -m 0644 \
+    "$release_root/nginx/00-ai-translate-releases-map-hash.conf" \
+    "$map_hash_config_path"
+fi
 
 temporary_sudoers="$(mktemp)"
 trap 'rm -f "$temporary_sudoers"' EXIT
