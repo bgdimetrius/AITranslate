@@ -76,6 +76,7 @@ func NewAnalyticsService(db DbHandler, chatId int64, bot tgbot.TelegramSender) A
 	return &analyticsservice{
 		db:     db,
 		chatId: chatId,
+		bot:    bot,
 	}
 }
 
