@@ -12,7 +12,7 @@ x-loki-logging: &loki-logging
 
 services:
   api:
-    image: ${DOCKER_REGISTRY}/ai-translate-api:${TAG}
+    image: ${DOCKER_REGISTRY}/ai-translate-api:${DEPLOY_SHA}
     environment:
       APP_VERSION: "${APP_VERSION}"
       APP_ENV: production
@@ -73,7 +73,7 @@ services:
     logging: *loki-logging
 
   migrate:
-    image: ${DOCKER_REGISTRY}/ai-translate-api:${TAG}
+    image: ${DOCKER_REGISTRY}/ai-translate-api:${DEPLOY_SHA}
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
@@ -180,39 +180,39 @@ volumes:
 secrets:
   DATABASE_URL_FILE:
     external: true
-    name: DATABASE_URL_FILE_${TAG}
+    name: DATABASE_URL_FILE_${RELEASE_ID}
   POSTGRES_PASSWORD:
     external: true
-    name: POSTGRES_PASSWORD_${TAG}
+    name: POSTGRES_PASSWORD_${RELEASE_ID}
   JWT_SECRET_FILE:
     external: true
-    name: JWT_SECRET_FILE_${TAG}
+    name: JWT_SECRET_FILE_${RELEASE_ID}
   OPENAI_API_KEY_FILE:
     external: true
-    name: OPENAI_API_KEY_FILE_${TAG}
+    name: OPENAI_API_KEY_FILE_${RELEASE_ID}
   DEEPL_API_KEYS_FILE:
     external: true
-    name: DEEPL_API_KEYS_FILE_${TAG}
+    name: DEEPL_API_KEYS_FILE_${RELEASE_ID}
   TELEGRAM_BOT_API_KEY_FILE:
     external: true
-    name: TELEGRAM_BOT_API_KEY_FILE_${TAG}
+    name: TELEGRAM_BOT_API_KEY_FILE_${RELEASE_ID}
   GRAFANA_PASSWORD:
     external: true
-    name: GRAFANA_PASSWORD_${TAG}
+    name: GRAFANA_PASSWORD_${RELEASE_ID}
 
 configs:
   loki_config:
     external: true
-    name: loki_config_${TAG}
+    name: loki_config_${RELEASE_ID}
   grafana_datasource:
     external: true
-    name: grafana_datasource_${TAG}
+    name: grafana_datasource_${RELEASE_ID}
   translate_prompt:
     external: true
-    name: TRANSLATE_PROMPT_${TAG}
+    name: TRANSLATE_PROMPT_${RELEASE_ID}
   interpret_prompt:
     external: true
-    name: INTERPRET_PROMPT_${TAG}
+    name: INTERPRET_PROMPT_${RELEASE_ID}
   analyze_prompt:
     external: true
-    name: ANALYZE_PROMPT_${TAG}
+    name: ANALYZE_PROMPT_${RELEASE_ID}

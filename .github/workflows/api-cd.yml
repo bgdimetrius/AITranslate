@@ -13,51 +13,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  resolve-release:
-    name: Resolve GitHub Release Tag
+  deploy:
+    name: Deploy API commit
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push'
-    runs-on: ubuntu-24.04
-    outputs:
-      tag: ${{ steps.release.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-
-      - name: Resolve latest published tag
-        id: release
-        env:
-          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          mapfile -t RELEASE_TAGS < <(
-            git tag --list \
-              | grep -E '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' \
-              | sort -V \
-              || true
-          )
-
-          if [ "${#RELEASE_TAGS[@]}" -eq 0 ]; then
-            echo "No Docker-safe GitHub tag exists; nothing to deploy."
-            echo "tag=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          LATEST_TAG="${RELEASE_TAGS[${#RELEASE_TAGS[@]}-1]}"
-
-          echo "Deploying tested commit $DEPLOY_SHA under latest published tag $LATEST_TAG."
-          echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
-
-  deploy:
-    name: Deploy API
-    needs: resolve-release
-    if: ${{ needs.resolve-release.outputs.tag != '' }}
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      TAG: ${{ needs.resolve-release.outputs.tag }}
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -73,34 +38,80 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push API image
+      - name: Build and push commit image
         uses: docker/build-push-action@v6
         with:
           context: api
           file: api/docker/prod.Dockerfile
           push: true
-          tags: ${{ vars.DOCKERHUB_USERNAME }}/ai-translate-api:${{ needs.resolve-release.outputs.tag }}
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/ai-translate-api:${{ github.event.workflow_run.head_sha }}
           cache-from: type=gha,scope=ai-translate-api-prod
           cache-to: type=gha,mode=max,scope=ai-translate-api-prod
 
-      - name: Copy versioned API project to VPS
+      - name: Make room for the commit release
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_SHA
+          script: |
+            set -euo pipefail
+
+            if [[ ! "$DEPLOY_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+              echo "ERROR: invalid commit SHA: $DEPLOY_SHA"
+              exit 1
+            fi
+
+            DEPLOY_ROOT="$HOME/AITranslate/api"
+            mkdir -p "$DEPLOY_ROOT"
+
+            if [ -d "$DEPLOY_ROOT/$DEPLOY_SHA" ]; then
+              echo "Release directory already exists for $DEPLOY_SHA."
+              exit 0
+            fi
+
+            mapfile -t RELEASES < <(
+              find "$DEPLOY_ROOT" -mindepth 1 -maxdepth 1 -type d \
+                -printf '%T@ %f\n' \
+                | awk '$2 ~ /^[a-f0-9]{40}$/ { print $0 }' \
+                | sort -n \
+                | awk '{ print $2 }'
+            )
+
+            while [ "${#RELEASES[@]}" -ge 2 ]; do
+              OLDEST_SHA="${RELEASES[0]}"
+              OLDEST_DIR="$DEPLOY_ROOT/$OLDEST_SHA"
+
+              if [[ ! "$OLDEST_SHA" =~ ^[a-f0-9]{40}$ ]] || \
+                 [ "$OLDEST_DIR" = "$DEPLOY_ROOT" ]; then
+                echo "ERROR: refusing to remove unsafe release path: $OLDEST_DIR"
+                exit 1
+              fi
+
+              echo "Removing oldest retained release $OLDEST_SHA."
+              rm -rf -- "$OLDEST_DIR"
+              RELEASES=("${RELEASES[@]:1}")
+            done
+
+      - name: Copy commit release to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "api"
-          target: "~/AITranslate/api/${{ needs.resolve-release.outputs.tag }}/"
+          target: "~/AITranslate/api/${{ github.event.workflow_run.head_sha }}/"
           strip_components: 1
 
-      - name: Deploy API stack to VPS
+      - name: Replace API stack with commit release
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: >-
-            TAG,
+            DEPLOY_SHA,
             DOCKERHUB_USERNAME,
             DOCKERHUB_TOKEN,
             APP_VERSION,
@@ -135,8 +146,18 @@ jobs:
               fi
             }
 
+            if [[ ! "$DEPLOY_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+              echo "ERROR: invalid commit SHA: $DEPLOY_SHA"
+              exit 1
+            fi
+
+            RELEASE_ID="${DEPLOY_SHA:0:12}"
+            DEPLOY_ROOT="$HOME/AITranslate/api"
+            DEPLOY_DIR="$DEPLOY_ROOT/$DEPLOY_SHA"
+            STACK_NAME="ai-translate-api_stack"
+
             sync_secret() {
-              local name="${1}_${TAG}"
+              local name="${1}_${RELEASE_ID}"
               local value="$2"
               require_value "$1" "$value"
               if ! docker secret inspect "$name" >/dev/null 2>&1; then
@@ -145,7 +166,7 @@ jobs:
             }
 
             sync_config() {
-              local name="${1}_${TAG}"
+              local name="${1}_${RELEASE_ID}"
               local file="$2"
               if ! docker config inspect "$name" >/dev/null 2>&1; then
                 docker config create "$name" "$file"
@@ -153,12 +174,35 @@ jobs:
             }
 
             sync_config_value() {
-              local name="${1}_${TAG}"
+              local name="${1}_${RELEASE_ID}"
               local value="$2"
               require_value "$1" "$value"
               if ! docker config inspect "$name" >/dev/null 2>&1; then
                 printf '%s' "$value" | docker config create "$name" -
               fi
+            }
+
+            wait_for_stack_removal() {
+              local attempts=0
+              while docker service ls --format '{{.Name}}' \
+                | grep -q "^${STACK_NAME}_"; do
+                if [ "$attempts" -ge 60 ]; then
+                  echo "ERROR: timed out waiting for $STACK_NAME services to stop"
+                  exit 1
+                fi
+                sleep 2
+                attempts=$((attempts + 1))
+              done
+
+              attempts=0
+              while docker network inspect "${STACK_NAME}_internal" >/dev/null 2>&1; do
+                if [ "$attempts" -ge 60 ]; then
+                  echo "ERROR: timed out waiting for $STACK_NAME network removal"
+                  exit 1
+                fi
+                sleep 2
+                attempts=$((attempts + 1))
+              done
             }
 
             require_value APP_VERSION "$APP_VERSION"
@@ -168,6 +212,11 @@ jobs:
             require_value TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
             require_value LOKI_PORT "$LOKI_PORT"
             require_value GRAFANA_PORT "$GRAFANA_PORT"
+
+            if [ ! -d "$DEPLOY_DIR" ]; then
+              echo "ERROR: release directory does not exist: $DEPLOY_DIR"
+              exit 1
+            fi
 
             echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
@@ -179,9 +228,6 @@ jobs:
             sync_secret TELEGRAM_BOT_API_KEY_FILE "$TELEGRAM_BOT_API_KEY"
             sync_secret GRAFANA_PASSWORD "$GRAFANA_PASSWORD"
 
-            DEPLOY_DIR="$HOME/AITranslate/api/$TAG"
-            require_value DEPLOY_DIR "$DEPLOY_DIR"
-
             sync_config loki_config "$DEPLOY_DIR/cfg/loki-config.yml"
             sync_config grafana_datasource "$DEPLOY_DIR/cfg/grafana-datasource.yml"
             sync_config_value TRANSLATE_PROMPT "$TRANSLATE_PROMPT"
@@ -191,22 +237,29 @@ jobs:
             cd "$DEPLOY_DIR"
 
             export DOCKER_REGISTRY="$DOCKERHUB_USERNAME"
-            export TAG APP_VERSION LOG_LEVEL PORT CORS_ORIGINS
+            export DEPLOY_SHA RELEASE_ID APP_VERSION LOG_LEVEL PORT CORS_ORIGINS
             export POSTGRES_USER POSTGRES_DB
             export OPENAI_MODEL OPENAI_TRANSLATION_LANGUAGES
             export TELEGRAM_CHAT_ID
             export MAX_TRANSLATION_CHARACTERS LOKI_PORT GRAFANA_PORT
 
             envsubst \
-              '${DOCKER_REGISTRY} ${TAG} ${APP_VERSION} ${LOG_LEVEL} ${PORT} ${CORS_ORIGINS} ${POSTGRES_USER} ${POSTGRES_DB} ${OPENAI_MODEL} ${OPENAI_TRANSLATION_LANGUAGES} ${TELEGRAM_CHAT_ID} ${MAX_TRANSLATION_CHARACTERS} ${LOKI_PORT} ${GRAFANA_PORT}' \
+              '${DOCKER_REGISTRY} ${DEPLOY_SHA} ${RELEASE_ID} ${APP_VERSION} ${LOG_LEVEL} ${PORT} ${CORS_ORIGINS} ${POSTGRES_USER} ${POSTGRES_DB} ${OPENAI_MODEL} ${OPENAI_TRANSLATION_LANGUAGES} ${TELEGRAM_CHAT_ID} ${MAX_TRANSLATION_CHARACTERS} ${LOKI_PORT} ${GRAFANA_PORT}' \
               < docker/docker-compose.yml \
               > docker/docker-compose.resolved.yml
 
+            if docker stack ls --format '{{.Name}}' | grep -Fxq "$STACK_NAME"; then
+              echo "Stopping currently deployed stack."
+              docker stack rm "$STACK_NAME"
+              wait_for_stack_removal
+            fi
+
+            echo "Starting commit $DEPLOY_SHA."
             docker stack deploy \
               --with-registry-auth \
-              --prune \
+              --resolve-image always \
               -c docker/docker-compose.resolved.yml \
-              ai-translate-api_stack
+              "$STACK_NAME"
 
             echo "Waiting for migration and services to stabilize..."
             MAX_WAIT=30
@@ -262,21 +315,101 @@ jobs:
               exit 1
             fi
 
-            docker secret ls --format '{{.Name}}' \
-              | grep -E '^(DATABASE_URL_FILE|POSTGRES_PASSWORD|JWT_SECRET_FILE|OPENAI_API_KEY_FILE|DEEPL_API_KEYS_FILE|TELEGRAM_BOT_API_KEY_FILE|GRAFANA_PASSWORD)_[a-f0-9]{8}$' \
-              | grep -v "_${TAG}$" \
-              | xargs -r docker secret rm \
-              || true
+            mapfile -t PREVIOUS_RELEASES < <(
+              find "$DEPLOY_ROOT" -mindepth 1 -maxdepth 1 -type d \
+                -printf '%T@ %f\n' \
+                | awk -v current="$DEPLOY_SHA" \
+                  '$2 ~ /^[a-f0-9]{40}$/ && $2 != current { print $0 }' \
+                | sort -nr \
+                | head -1 \
+                | awk '{ print $2 }'
+            )
+            KEPT_RELEASES=("$DEPLOY_SHA" "${PREVIOUS_RELEASES[@]}")
 
-            docker config ls --format '{{.Name}}' \
-              | grep -E '^(loki_config|grafana_datasource|TRANSLATE_PROMPT|INTERPRET_PROMPT|ANALYZE_PROMPT)_[a-f0-9]{8}$' \
-              | grep -v "_${TAG}$" \
-              | xargs -r docker config rm \
-              || true
+            is_kept_release_sha() {
+              local candidate="$1"
+              local release_sha
+              for release_sha in "${KEPT_RELEASES[@]}"; do
+                if [ "$candidate" = "$release_sha" ]; then
+                  return 0
+                fi
+              done
+              return 1
+            }
+
+            is_kept_release_id() {
+              local candidate="$1"
+              local release_sha
+              for release_sha in "${KEPT_RELEASES[@]}"; do
+                if [ "$candidate" = "${release_sha:0:12}" ]; then
+                  return 0
+                fi
+              done
+              return 1
+            }
+
+            while IFS= read -r release_dir; do
+              release_name=$(basename "$release_dir")
+              if [[ "$release_name" =~ ^[a-f0-9]{40}$ ]] && \
+                 ! is_kept_release_sha "$release_name"; then
+                echo "Removing surplus release $release_name."
+                rm -rf -- "$release_dir"
+              fi
+            done < <(find "$DEPLOY_ROOT" -mindepth 1 -maxdepth 1 -type d)
+
+            while IFS= read -r legacy_dir; do
+              legacy_name=$(basename "$legacy_dir")
+              if [[ ! "$legacy_name" =~ ^[a-f0-9]{40}$ ]] && \
+                 [ -f "$legacy_dir/docker/docker-compose.resolved.yml" ]; then
+                echo "Removing legacy tagged release $legacy_name."
+                rm -rf -- "$legacy_dir"
+              fi
+            done < <(find "$DEPLOY_ROOT" -mindepth 1 -maxdepth 1 -type d)
+
+            while IFS= read -r secret_name; do
+              case "$secret_name" in
+                DATABASE_URL_FILE_*|POSTGRES_PASSWORD_*|JWT_SECRET_FILE_*|OPENAI_API_KEY_FILE_*|DEEPL_API_KEYS_FILE_*|TELEGRAM_BOT_API_KEY_FILE_*|GRAFANA_PASSWORD_*)
+                  secret_release_id="${secret_name##*_}"
+                  if ! is_kept_release_id "$secret_release_id"; then
+                    docker secret rm "$secret_name" || true
+                  fi
+                  ;;
+              esac
+            done < <(docker secret ls --format '{{.Name}}')
+
+            while IFS= read -r config_name; do
+              case "$config_name" in
+                loki_config_*|grafana_datasource_*|TRANSLATE_PROMPT_*|INTERPRET_PROMPT_*|ANALYZE_PROMPT_*)
+                  config_release_id="${config_name##*_}"
+                  if ! is_kept_release_id "$config_release_id"; then
+                    docker config rm "$config_name" || true
+                  fi
+                  ;;
+              esac
+            done < <(docker config ls --format '{{.Name}}')
+
+            while IFS= read -r image_ref; do
+              image_sha="${image_ref##*:}"
+              keep_image=false
+              for release_sha in "${KEPT_RELEASES[@]}"; do
+                if [ "$image_sha" = "$release_sha" ]; then
+                  keep_image=true
+                  break
+                fi
+              done
+              if [ "$keep_image" = false ]; then
+                docker image rm "$image_ref" || true
+              fi
+            done < <(
+              docker image ls \
+                "$DOCKERHUB_USERNAME/ai-translate-api" \
+                --format '{{.Repository}}:{{.Tag}}'
+            )
 
             docker image prune -f
+            echo "Deployed $DEPLOY_SHA; retained ${KEPT_RELEASES[*]}."
         env:
-          TAG: ${{ needs.resolve-release.outputs.tag }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           APP_VERSION: ${{ vars.APP_VERSION || 'v1' }}

@@ -8,6 +8,7 @@ defineEmits<{
   <button
     type="button"
     aria-label="Go back"
+    class="rounded-md p-1 text-gray-600 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
     @click="$emit('back')"
   >
     <svg

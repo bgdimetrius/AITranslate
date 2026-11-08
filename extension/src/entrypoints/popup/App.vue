@@ -391,7 +391,6 @@ onBeforeUnmount(() => {
       >
       <header class="flex items-center gap-3">
         <GoBackButton
-          class="rounded-md p-1 text-gray-600 transition-colors hover:bg-indigo-50"
           @back="settingsOpen = false"
         />
         <h1 class="text-lg font-semibold">Settings</h1>
