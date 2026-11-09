@@ -6,10 +6,17 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
   manifest: {
-    name: 'In-line AI Translator for Language Learning',
+    name: 'AI Translator for Language Learning',
     description:
-      'A fast, minimal in-line translator for language learners reading and working online.',
+      'Translate words, phrases, and text instantly in-page or from the popup, with contextual meanings designed for language learners.',
     version: '0.2.3',
+    icons: {
+      16: 'icon/16.png',
+      32: 'icon/32.png',
+      48: 'icon/48.png',
+      96: 'icon/96.png',
+      128: 'icon/128.png',
+    },
     permissions: [
       'storage',
       'contextMenus',
