@@ -9,7 +9,7 @@ export default defineConfig({
     name: 'AI Translator for Language Learning',
     description:
       'Translate words, phrases, and text instantly in-page or from the popup, with contextual meanings designed for language learners.',
-    version: '0.2.3',
+    version: '0.3.0',
     icons: {
       16: 'icon/16.png',
       32: 'icon/32.png',
