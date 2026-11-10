@@ -3,6 +3,8 @@ package helper
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/bgdimetrius/AITranslate/pkg"
@@ -95,15 +97,40 @@ func TestRecordDailyUsagePreconditions(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if !helperPanics(func() { RecordDailyUsage(test.ctx, test.log, test.db, test.user, test.usage) }) {
+			panicValue := captureHelperPanic(func() {
+				RecordDailyUsage(test.ctx, test.log, test.db, test.user, test.usage)
+			})
+			if panicValue == nil {
 				t.Fatal("RecordDailyUsage() did not panic")
+			}
+			if strings.TrimSpace(fmt.Sprint(panicValue)) == "" {
+				t.Fatal("RecordDailyUsage() produced an empty panic")
 			}
 		})
 	}
 }
 
-func helperPanics(fn func()) (didPanic bool) {
-	defer func() { didPanic = recover() != nil }()
+func TestRecordDailyUsagePreservesContextCancellation(t *testing.T) {
+	panicValue := captureHelperPanic(func() {
+		RecordDailyUsage(
+			context.Background(),
+			zap.NewNop(),
+			&usageDBStub{validateErr: context.Canceled},
+			42,
+			&pkg.Usage{},
+		)
+	})
+	panicErr, ok := panicValue.(error)
+	if !ok {
+		t.Fatalf("panic = %T %v; want an error", panicValue, panicValue)
+	}
+	if !errors.Is(panicErr, context.Canceled) {
+		t.Fatalf("panic = %v; want wrapped context.Canceled", panicErr)
+	}
+}
+
+func captureHelperPanic(fn func()) (recovered any) {
+	defer func() { recovered = recover() }()
 	fn()
-	return false
+	return nil
 }

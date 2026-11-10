@@ -3,6 +3,8 @@ package helper
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/bgdimetrius/AITranslate/pkg"
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
@@ -10,12 +12,6 @@ import (
 	"github.com/labstack/echo/v5"
 	"go.uber.org/zap"
 )
-
-func assert(cond bool, msg string) {
-	if !cond {
-		panic(msg)
-	}
-}
 
 // DbHandler is the persistence contract required for usage accounting.
 type DbHandler interface {
@@ -43,14 +39,16 @@ func RecordDailyUsage(ctx context.Context, log *zap.Logger, db DbHandler, userId
 	validation.MustNotNil("logger", log)
 	validation.MustNotNil("usage database", db)
 	validation.MustPositiveInt("user ID", userId)
-	assert(func() bool {
-		ok, err := db.ValidateUserId(ctx, int64(userId))
-		if err != nil {
+	ok, err := db.ValidateUserId(ctx, int64(userId))
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
 			log.Error("db query returned error", zap.Error(err))
-			return false
 		}
-		return ok
-	}(), "")
+		panic(fmt.Errorf("validate installation for usage accounting: %w", err))
+	}
+	if !ok {
+		panic("usage accounting requires an active installation")
+	}
 	validation.MustNotNil("usage", usage)
 	validation.MustNonNegativeInt32("translation request count", usage.TranslationRequests)
 	validation.MustNonNegativeInt32("interpretation request count", usage.InterpretationRequests)
@@ -58,7 +56,7 @@ func RecordDailyUsage(ctx context.Context, log *zap.Logger, db DbHandler, userId
 	validation.MustNonNegativeInt64("input character count", usage.InputCharacters)
 	validation.MustNonNegativeInt64("input token count", usage.InputTokens)
 	validation.MustNonNegativeInt64("output token count", usage.OutputTokens)
-	err := db.RecordDailyUsage(ctx, queries.RecordDailyUsageParams{
+	err = db.RecordDailyUsage(ctx, queries.RecordDailyUsageParams{
 		InstallationID:         int64(userId),
 		TranslationRequests:    usage.TranslationRequests,
 		InterpretationRequests: usage.InterpretationRequests,

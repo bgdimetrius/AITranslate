@@ -1,0 +1,461 @@
+@font-face {
+  font-family: "Inter";
+  src: url("../../fonts/inter/Inter_18pt-SemiBold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+}
+
+:root {
+  color-scheme: only light;
+  font-family: "Inter", Arial, sans-serif;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  width: 1400px;
+  height: 560px;
+  margin: 0;
+  overflow: hidden;
+  background: #07133b;
+}
+
+.marquee {
+  position: relative;
+  isolation: isolate;
+  width: 1400px;
+  height: 560px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 48% 48%, rgba(45, 133, 255, 0.32), transparent 23%),
+    radial-gradient(circle at 100% 0%, rgba(55, 197, 255, 0.34), transparent 34%),
+    linear-gradient(112deg, #07133b 0%, #0a2468 48%, #0f59bf 100%);
+}
+
+.grain {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  opacity: 0.22;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.55) 0.72px, transparent 0.72px);
+  background-size: 17px 17px;
+  mask-image: radial-gradient(ellipse at center, #000 0%, transparent 79%);
+}
+
+.glow {
+  position: absolute;
+  z-index: -2;
+  border-radius: 50%;
+  filter: blur(2px);
+}
+
+.glow-left {
+  top: 73px;
+  left: 61px;
+  width: 480px;
+  height: 405px;
+  background: rgba(90, 209, 255, 0.13);
+}
+
+.glow-right {
+  top: 33px;
+  right: -72px;
+  width: 560px;
+  height: 500px;
+  background: rgba(116, 227, 255, 0.1);
+}
+
+.orbit {
+  position: absolute;
+  z-index: -1;
+  border: 1px solid rgba(134, 230, 255, 0.19);
+  border-radius: 50%;
+  transform: rotate(-12deg);
+}
+
+.orbit-one {
+  top: -260px;
+  left: 310px;
+  width: 790px;
+  height: 790px;
+}
+
+.orbit-two {
+  top: -177px;
+  left: 398px;
+  width: 610px;
+  height: 610px;
+  opacity: 0.6;
+}
+
+.source-page {
+  position: absolute;
+  top: 74px;
+  left: 88px;
+  width: 430px;
+  height: 412px;
+  padding: 56px 47px 42px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.46);
+  border-radius: 27px;
+  background:
+    radial-gradient(circle at 85% 10%, rgba(88, 198, 255, 0.1), transparent 30%),
+    #f8fbff;
+  box-shadow:
+    0 35px 65px rgba(1, 8, 38, 0.32),
+    0 9px 23px rgba(1, 11, 47, 0.2);
+  transform: rotate(-4.6deg);
+}
+
+.source-page::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 23px;
+  background: linear-gradient(90deg, #68ddff 0%, #2d88f4 100%);
+}
+
+.page-tab {
+  width: 72px;
+  height: 8px;
+  border-radius: 99px;
+  background: #398cee;
+}
+
+.page-heading {
+  width: 269px;
+  height: 24px;
+  margin-top: 21px;
+  border-radius: 6px;
+  background: #15213f;
+}
+
+.copy-lines {
+  display: grid;
+  width: 320px;
+  margin-top: 34px;
+  gap: 13px;
+}
+
+.copy-line {
+  height: 9px;
+  border-radius: 99px;
+  background: #d3dce9;
+}
+
+.selected-line {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 327px;
+  height: 37px;
+  margin-top: 23px;
+  padding: 0 12px;
+  gap: 8px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #b9f0ff 0%, #84ddff 100%);
+  box-shadow:
+    0 7px 18px rgba(40, 152, 212, 0.2),
+    inset 0 -2px 0 rgba(45, 151, 219, 0.22);
+}
+
+.selected-line::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -3px;
+  width: 3px;
+  height: 46px;
+  border-radius: 99px;
+  background: #287ce2;
+}
+
+.selected-line span,
+.selected-line i,
+.selected-line b {
+  display: block;
+  height: 8px;
+  border-radius: 99px;
+  background: #35729e;
+}
+
+.selected-line span { width: 83px; opacity: 0.66; }
+.selected-line i { width: 105px; }
+.selected-line b { width: 82px; opacity: 0.66; }
+.copy-lines-bottom { margin-top: 26px; }
+
+.translation-path {
+  position: absolute;
+  top: 247px;
+  left: 480px;
+  z-index: 4;
+  width: 448px;
+  height: 92px;
+  border-top: 4px solid rgba(125, 229, 255, 0.72);
+  border-radius: 50%;
+  filter: drop-shadow(0 0 11px rgba(82, 211, 255, 0.62));
+  transform: rotate(-1deg);
+}
+
+.translation-path::before,
+.translation-path::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  background: #8be9ff;
+}
+
+.translation-path::before {
+  top: -8px;
+  left: -3px;
+  width: 12px;
+  height: 12px;
+}
+
+.translation-path::after {
+  top: -9px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+}
+
+.path-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e8fbff;
+  box-shadow: 0 0 12px rgba(101, 222, 255, 0.88);
+}
+
+.path-dot-one { top: -9px; left: 103px; }
+.path-dot-two { top: -13px; left: 220px; }
+.path-dot-three { top: -10px; left: 340px; }
+
+.brand-core {
+  position: absolute;
+  top: 153px;
+  left: 564px;
+  z-index: 7;
+  width: 250px;
+  height: 250px;
+}
+
+.core-ring {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.core-ring-outer {
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 0 0 24px rgba(102, 221, 255, 0.035),
+    0 0 72px rgba(55, 183, 255, 0.42);
+}
+
+.core-ring-inner {
+  inset: 25px;
+  border: 1px solid rgba(139, 233, 255, 0.5);
+  background: rgba(73, 171, 255, 0.12);
+  box-shadow: inset 0 0 35px rgba(93, 217, 255, 0.14);
+}
+
+.logo-disc {
+  position: absolute;
+  inset: 49px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 38px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 25px 44px rgba(1, 11, 50, 0.32),
+    inset 0 1px 0 #ffffff;
+  transform: rotate(3deg);
+}
+
+.logo-disc img {
+  width: 132px;
+  height: 132px;
+  object-fit: contain;
+}
+
+.meaning-stack {
+  position: absolute;
+  top: 72px;
+  right: 83px;
+  width: 440px;
+  height: 424px;
+}
+
+.meaning-sheet {
+  position: absolute;
+  width: 350px;
+  height: 285px;
+  border-radius: 25px;
+  box-shadow: 0 29px 54px rgba(2, 11, 46, 0.25);
+}
+
+.sheet-back {
+  top: 20px;
+  right: 43px;
+  padding: 35px;
+  color: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  background: linear-gradient(145deg, rgba(83, 201, 255, 0.72), rgba(41, 116, 223, 0.72));
+  transform: rotate(-8deg);
+}
+
+.sheet-middle {
+  top: 71px;
+  right: 11px;
+  padding: 35px;
+  color: #1a376e;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  background: linear-gradient(150deg, #d6f6ff 0%, #a9eaff 100%);
+  transform: rotate(8deg);
+}
+
+.sheet-front {
+  right: 52px;
+  bottom: 4px;
+  width: 370px;
+  height: 270px;
+  padding: 40px 40px 32px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow:
+    0 35px 62px rgba(2, 12, 51, 0.34),
+    0 8px 18px rgba(4, 25, 74, 0.15);
+  transform: rotate(-1.7deg);
+}
+
+.sheet-symbol {
+  font-size: 66px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.sheet-lines {
+  display: grid;
+  margin-top: 35px;
+  gap: 13px;
+}
+
+.sheet-lines span {
+  width: 218px;
+  height: 10px;
+  border-radius: 99px;
+  background: currentColor;
+  opacity: 0.36;
+}
+
+.sheet-lines span:last-child { width: 156px; }
+
+.context-mark {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.context-mark span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #d6dfed;
+}
+
+.context-mark span:first-child {
+  width: 14px;
+  height: 14px;
+  background: #3b8ff0;
+  box-shadow: 0 0 0 7px rgba(59, 143, 240, 0.12);
+}
+
+.result-lines {
+  display: grid;
+  width: 274px;
+  margin-top: 36px;
+  gap: 18px;
+}
+
+.result-line {
+  height: 13px;
+  border-radius: 99px;
+  background: #162544;
+}
+
+.result-line.primary {
+  height: 17px;
+  background: #2d79db;
+}
+
+.context-choices {
+  display: flex;
+  gap: 10px;
+  margin-top: 35px;
+}
+
+.context-choices span {
+  width: 70px;
+  height: 14px;
+  border-radius: 99px;
+  background: #dce5f1;
+}
+
+.context-choices span.active {
+  background: #7de4ff;
+  box-shadow: 0 0 17px rgba(81, 204, 244, 0.28);
+}
+
+.language-particle {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 15px;
+  background: rgba(56, 133, 230, 0.3);
+  box-shadow: 0 13px 27px rgba(1, 10, 46, 0.18);
+  backdrop-filter: blur(5px);
+  font-size: 25px;
+  font-weight: 600;
+}
+
+.particle-one {
+  top: 37px;
+  left: 534px;
+  width: 53px;
+  height: 53px;
+  transform: rotate(-8deg);
+}
+
+.particle-two {
+  bottom: 34px;
+  left: 485px;
+  width: 57px;
+  height: 57px;
+  transform: rotate(7deg);
+}
+
+.particle-three {
+  top: 58px;
+  left: 813px;
+  width: 45px;
+  height: 45px;
+  transform: rotate(9deg);
+}
+
+.particle-four {
+  right: 472px;
+  bottom: 42px;
+  width: 50px;
+  height: 50px;
+  transform: rotate(-6deg);
+}

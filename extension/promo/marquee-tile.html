@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1400, initial-scale=1" />
+    <title>AI Translator — Marquee promo tile</title>
+    <link rel="stylesheet" href="./marquee-tile.css" />
+  </head>
+  <body>
+    <main class="marquee" aria-label="AI Translator marquee promotional tile">
+      <div class="grain" aria-hidden="true"></div>
+      <div class="glow glow-left" aria-hidden="true"></div>
+      <div class="glow glow-right" aria-hidden="true"></div>
+      <div class="orbit orbit-one" aria-hidden="true"></div>
+      <div class="orbit orbit-two" aria-hidden="true"></div>
+
+      <section class="source-page" aria-label="Selected phrase in a reading passage">
+        <div class="page-tab"></div>
+        <div class="page-heading"></div>
+        <div class="copy-lines" id="source-lines-top"></div>
+        <div class="selected-line"><span></span><i></i><b></b></div>
+        <div class="copy-lines copy-lines-bottom" id="source-lines-bottom"></div>
+      </section>
+
+      <div class="translation-path" aria-hidden="true">
+        <span class="path-dot path-dot-one"></span>
+        <span class="path-dot path-dot-two"></span>
+        <span class="path-dot path-dot-three"></span>
+      </div>
+
+      <section class="brand-core" aria-label="AI Translator logo">
+        <div class="core-ring core-ring-outer"></div>
+        <div class="core-ring core-ring-inner"></div>
+        <div class="logo-disc">
+          <img src="../public/icon/128.png" alt="" />
+        </div>
+      </section>
+
+      <section class="meaning-stack" aria-label="Context-aware translation result">
+        <article class="meaning-sheet sheet-back">
+          <div class="sheet-symbol">文</div>
+          <div class="sheet-lines"><span></span><span></span></div>
+        </article>
+        <article class="meaning-sheet sheet-middle">
+          <div class="sheet-symbol">A</div>
+          <div class="sheet-lines"><span></span><span></span></div>
+        </article>
+        <article class="meaning-sheet sheet-front">
+          <div class="context-mark"><span></span><span></span><span></span></div>
+          <div class="result-lines" id="result-lines"></div>
+          <div class="context-choices">
+            <span class="active"></span><span></span><span></span>
+          </div>
+        </article>
+      </section>
+
+      <div class="language-particle particle-one" aria-hidden="true">ñ</div>
+      <div class="language-particle particle-two" aria-hidden="true">あ</div>
+      <div class="language-particle particle-three" aria-hidden="true">A</div>
+      <div class="language-particle particle-four" aria-hidden="true">文</div>
+    </main>
+
+    <script src="./marquee-tile.js"></script>
+  </body>
+</html>

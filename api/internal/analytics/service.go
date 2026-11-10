@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 
@@ -11,12 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-func assert(cond bool, msg string) {
-	if !cond {
-		panic(msg)
-	}
-}
-
 // SaveApplicationFeedback persists validated feedback for an active
 // installation. It panics if its preconditions fail or the installation cannot
 // be validated; persistence errors are returned.
@@ -24,19 +19,21 @@ func (as *analyticsservice) SaveApplicationFeedback(ctx context.Context, log *za
 	validation.MustNotNil("context", ctx)
 	validation.MustNotNil("logger", log)
 	validation.MustPositiveInt("user ID", userId)
-	assert(func() bool {
-		ok, err := as.db.ValidateUserId(ctx, int64(userId))
-		if err != nil {
+	ok, err := as.db.ValidateUserId(ctx, int64(userId))
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
 			log.Error("db query returned error", zap.Error(err))
-			return false
 		}
-		return ok
-	}(), "")
+		panic(fmt.Errorf("validate installation for application feedback: %w", err))
+	}
+	if !ok {
+		panic("application feedback requires an active installation")
+	}
 	if _, err := validation.ValidateApplicationFeedback(r.Rating, r.Text); err != nil {
 		panic(err)
 	}
 
-	err := as.db.SaveApplicationFeedback(ctx, queries.SaveApplicationFeedbackParams{
+	err = as.db.SaveApplicationFeedback(ctx, queries.SaveApplicationFeedbackParams{
 		InstallationID: int64(userId),
 		Rating:         int16(r.Rating),
 		FeedbackText:   r.Text,
@@ -68,20 +65,22 @@ func (as *analyticsservice) SaveFeedbackLead(ctx context.Context, log *zap.Logge
 	validation.MustNotNil("context", ctx)
 	validation.MustNotNil("logger", log)
 	validation.MustPositiveInt("user ID", userId)
-	assert(func() bool {
-		ok, err := as.db.ValidateUserId(ctx, int64(userId))
-		if err != nil {
+	ok, err := as.db.ValidateUserId(ctx, int64(userId))
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
 			log.Error("db query returned error", zap.Error(err))
-			return false
 		}
-		return ok
-	}(), "")
+		panic(fmt.Errorf("validate installation for feedback lead: %w", err))
+	}
+	if !ok {
+		panic("feedback lead requires an active installation")
+	}
 	validatedEmail, err := validation.ValidateEmail(email)
 	if err != nil {
 		panic(err)
 	}
 
-	ok, err := as.db.SaveFeedbackLead(ctx, queries.SaveFeedbackLeadParams{
+	ok, err = as.db.SaveFeedbackLead(ctx, queries.SaveFeedbackLeadParams{
 		InstallationID: int64(userId),
 		Email:          validatedEmail,
 	})
@@ -111,16 +110,18 @@ func (as *analyticsservice) SaveTranslationFeedback(ctx context.Context, log *za
 	validation.MustNotNil("context", ctx)
 	validation.MustNotNil("logger", log)
 	validation.MustPositiveInt("user ID", userID)
-	assert(func() bool {
-		ok, err := as.db.ValidateUserId(ctx, int64(userID))
-		if err != nil {
+	ok, err := as.db.ValidateUserId(ctx, int64(userID))
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
 			log.Error("db query returned error", zap.Error(err))
-			return false
 		}
-		return ok
-	}(), "")
+		panic(fmt.Errorf("validate installation for translation feedback: %w", err))
+	}
+	if !ok {
+		panic("translation feedback requires an active installation")
+	}
 
-	err := as.db.SaveTranslationFeedback(ctx, queries.SaveTranslationFeedbackParams{
+	err = as.db.SaveTranslationFeedback(ctx, queries.SaveTranslationFeedbackParams{
 		InstallationID:  int64(userID),
 		TranslationID:   feedback.TranslationID,
 		Revision:        feedback.Revision,

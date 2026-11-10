@@ -1,0 +1,184 @@
+@font-face {
+  font-family: "Inter";
+  src: url("../../fonts/inter/Inter_18pt-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("../../fonts/inter/Inter_18pt-SemiBold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("../../fonts/inter/Inter_18pt-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+}
+
+:root {
+  color-scheme: only light;
+  font-family: "Inter", Arial, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 440px;
+  height: 280px;
+  margin: 0;
+  overflow: hidden;
+  background: #0b174f;
+}
+
+.tile {
+  position: relative;
+  isolation: isolate;
+  width: 440px;
+  height: 280px;
+  overflow: hidden;
+  color: #fff;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(105, 208, 255, 0.3), transparent 31%),
+    linear-gradient(125deg, #0b174f 0%, #103a96 51%, #1766ce 100%);
+}
+
+.tile::before {
+  content: "";
+  position: absolute;
+  top: -152px;
+  right: -96px;
+  z-index: -1;
+  width: 365px;
+  height: 365px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 39px rgba(255, 255, 255, 0.035),
+    0 0 0 78px rgba(255, 255, 255, 0.02);
+}
+
+.tile::after {
+  content: "";
+  position: absolute;
+  left: -86px;
+  bottom: -122px;
+  z-index: -1;
+  width: 260px;
+  height: 260px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  opacity: 0.52;
+}
+
+.texture {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.19;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.76) 0.75px, transparent 0.75px);
+  background-size: 18px 18px;
+  mask-image: linear-gradient(90deg, #000 0%, transparent 77%);
+}
+
+.message {
+  position: absolute;
+  top: 39px;
+  left: 30px;
+  z-index: 5;
+  width: 220px;
+}
+
+.brand-name {
+  position: relative;
+  margin: 0;
+  padding-left: 13px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+}
+
+.brand-name::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 0;
+  width: 3px;
+  border-radius: 99px;
+  background: #72dbff;
+  box-shadow: 0 0 14px rgba(114, 219, 255, 0.72);
+}
+
+h1 {
+  width: 218px;
+  margin: 39px 0 0;
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1.01;
+  letter-spacing: -0.045em;
+  text-shadow: 0 3px 22px rgba(4, 14, 53, 0.24);
+}
+
+.hero {
+  position: absolute;
+  top: 30px;
+  right: 17px;
+  z-index: 2;
+  width: 187px;
+  height: 220px;
+}
+
+.logo-halo {
+  position: absolute;
+  top: 22px;
+  right: 4px;
+  width: 164px;
+  height: 164px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(134, 205, 255, 0.11);
+  box-shadow:
+    0 0 0 17px rgba(255, 255, 255, 0.025),
+    0 24px 60px rgba(2, 15, 63, 0.22);
+}
+
+.hero-logo {
+  position: absolute;
+  top: 27px;
+  right: 9px;
+  width: 154px;
+  height: 154px;
+  object-fit: contain;
+  filter: drop-shadow(0 19px 22px rgba(3, 13, 49, 0.33));
+}
+
+.reading-lines {
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  display: grid;
+  width: 169px;
+  gap: 8px;
+  transform: rotate(-3deg);
+}
+
+.reading-line {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.21);
+}
+
+.reading-line.highlight {
+  height: 7px;
+  background: #72dbff;
+  box-shadow: 0 0 16px rgba(114, 219, 255, 0.48);
+}

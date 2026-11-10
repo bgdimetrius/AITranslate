@@ -1,7 +1,9 @@
 package paniccatcher
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -111,6 +113,31 @@ func TestMiddleware(t *testing.T) {
 		}
 	})
 
+	t.Run("context cancellation panic does not alert", func(t *testing.T) {
+		log, observed := observedLogger()
+		sender := &recordingTelegramSender{}
+		c := newTestContext(http.MethodGet, "/api/v1/translate")
+		c.SetPath("/api/v1/translate")
+		SetTelegramAlertTarget(c, sender, 42)
+
+		err, recovered := invoke(Middleware(log)(func(*echo.Context) error {
+			panic(fmt.Errorf("validate installation for usage accounting: %w", context.Canceled))
+		}), c)
+
+		if recovered != nil {
+			t.Fatalf("recovered value = %v; want nil", recovered)
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v; want context.Canceled", err)
+		}
+		if len(sender.messages) != 0 {
+			t.Fatalf("Telegram messages = %d; want 0", len(sender.messages))
+		}
+		if observed.Len() != 0 {
+			t.Fatalf("error logs = %d; want 0", observed.Len())
+		}
+	})
+
 	t.Run("Telegram error does not replace recovered response", func(t *testing.T) {
 		log, observed := observedLogger()
 		sender := &recordingTelegramSender{sendErr: errors.New("Telegram unavailable")}
@@ -193,6 +220,23 @@ func TestSetTelegramAlertTarget(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if panicFrom(test.call) == nil {
 				t.Fatal("SetTelegramAlertTarget() did not panic")
+			}
+		})
+	}
+}
+
+func TestRecoveredErrorNeverReturnsAnEmptyMessage(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value any
+	}{
+		{name: "empty string", value: ""},
+		{name: "blank string", value: "   "},
+		{name: "empty error", value: errors.New("")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if message := strings.TrimSpace(recoveredError(test.value).Error()); message == "" {
+				t.Fatal("recoveredError() returned an empty message")
 			}
 		})
 	}

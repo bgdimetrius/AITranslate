@@ -17,6 +17,8 @@ import (
 
 type interpretationServiceDBStub struct{}
 
+type inactiveInterpretationServiceDBStub struct{}
+
 type interpretationRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f interpretationRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -29,6 +31,30 @@ func (interpretationServiceDBStub) ValidateUserId(context.Context, int64) (bool,
 
 func (interpretationServiceDBStub) RecordDailyUsage(context.Context, queries.RecordDailyUsageParams) error {
 	return nil
+}
+
+func (inactiveInterpretationServiceDBStub) ValidateUserId(context.Context, int64) (bool, error) {
+	return false, nil
+}
+
+func (inactiveInterpretationServiceDBStub) RecordDailyUsage(context.Context, queries.RecordDailyUsageParams) error {
+	return nil
+}
+
+func TestInterpretationServiceInactiveUserPanicIsDescriptive(t *testing.T) {
+	service := &interpservice{db: inactiveInterpretationServiceDBStub{}}
+	panicValue := captureInterpretationPanic(func() {
+		_, _, _ = service.Interpretate(context.Background(), zap.NewNop(), &interpReq{
+			TargetLang: "Spanish",
+			UserId:     42,
+			Text:       "hello",
+		})
+	})
+
+	message := fmt.Sprint(panicValue)
+	if !strings.Contains(message, "interpretation requires an active installation") {
+		t.Fatalf("panic = %q; want descriptive inactive-installation detail", message)
+	}
 }
 
 // Both OpenAI operations must reach panic recovery as soon as the provider

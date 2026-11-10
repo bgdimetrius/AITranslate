@@ -3,6 +3,8 @@ package analytics
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/bgdimetrius/AITranslate/pkg/db/queries"
@@ -209,11 +211,21 @@ func TestAnalyticsServicePreconditions(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if !analyticsPanics(test.call) {
+			panicValue := captureAnalyticsServicePanic(test.call)
+			if panicValue == nil {
 				t.Fatal("analytics service did not panic")
+			}
+			if strings.TrimSpace(fmt.Sprint(panicValue)) == "" {
+				t.Fatal("analytics service produced an empty panic")
 			}
 		})
 	}
+}
+
+func captureAnalyticsServicePanic(fn func()) (recovered any) {
+	defer func() { recovered = recover() }()
+	fn()
+	return nil
 }
 
 func validTranslationFeedback() validation.TranslationFeedback {

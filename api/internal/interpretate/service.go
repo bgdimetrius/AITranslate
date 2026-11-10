@@ -2,6 +2,7 @@ package interpretate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -30,12 +31,6 @@ func waitForRetry(ctx context.Context, attempt int) error {
 	}
 }
 
-func assert(cond bool, msg string) {
-	if !cond {
-		panic(msg)
-	}
-}
-
 // Interpretate gives provider and decoding failures one bounded retry budget.
 // A terminal failure panics so request recovery can alert operators; context
 // cancellation and deadline errors are returned to the caller.
@@ -45,14 +40,16 @@ func (ints *interpservice) Interpretate(ctx context.Context, log *zap.Logger, in
 	validation.MustNotNil("interpretation request", intr)
 	validation.MustPositiveInt("user ID", intr.UserId)
 	validation.MustNotBlank("target language", intr.TargetLang)
-	assert(func() bool {
-		ok, err := ints.db.ValidateUserId(ctx, int64(intr.UserId))
-		if err != nil {
+	ok, err := ints.db.ValidateUserId(ctx, int64(intr.UserId))
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
 			log.Error("db query returned error", zap.Error(err))
-			return false
 		}
-		return ok
-	}(), "")
+		panic(fmt.Errorf("validate installation for interpretation: %w", err))
+	}
+	if !ok {
+		panic("interpretation requires an active installation")
+	}
 	if _, err := validation.ValidateInterpretationText(intr.Text); err != nil {
 		panic(err)
 	}

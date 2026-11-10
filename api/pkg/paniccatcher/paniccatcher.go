@@ -3,7 +3,9 @@
 package paniccatcher
 
 import (
+	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -42,6 +44,8 @@ func SetTelegramAlertTarget(c *echo.Context, bot tgbot.TelegramSender, chatID in
 // registered route path, and response state; it excludes the query string and
 // points operators to the application logs for the full stack trace.
 // Telegram delivery failures are logged but never replace the recovered error.
+// Panics that explicitly wrap context.Canceled are treated as expected request
+// cancellation: they are returned without an error-level stack log or alert.
 // It re-panics http.ErrAbortHandler to preserve net/http's aborted-request
 // behavior.
 //
@@ -74,6 +78,16 @@ func Middleware(fallbackLog *zap.Logger) echo.MiddlewareFunc {
 
 				method, path := requestRoute(c)
 				committed := responseCommitted(c)
+				if errors.Is(panicErr, context.Canceled) {
+					requestLog.Info("request canceled during panic recovery",
+						zap.Error(panicErr),
+						zap.String("method", method),
+						zap.String("path", path),
+						zap.Bool("response_committed", committed),
+					)
+					err = context.Canceled
+					return
+				}
 				stack := debug.Stack()
 
 				requestLog.Error("panic recovered",
@@ -187,7 +201,14 @@ func escapeAndLimit(value string, limit int) string {
 
 func recoveredError(value any) error {
 	if err, ok := value.(error); ok {
-		return err
+		if strings.TrimSpace(err.Error()) != "" {
+			return err
+		}
+		return fmt.Errorf("panic recovered without a message")
 	}
-	return fmt.Errorf("%v", value)
+	message := fmt.Sprint(value)
+	if strings.TrimSpace(message) == "" {
+		message = "panic recovered without a message"
+	}
+	return fmt.Errorf("%s", message)
 }
